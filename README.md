@@ -19,6 +19,7 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [开发路线](docs/roadmap.md)
 - [可行性验证进度与结果](docs/feasibility/README.md)
 - [跨端密码学与备份协议](docs/protocol-v1.md)
+- [业务数据、同步与权限协议](docs/sync-api-v1.md)
 - [协议与真机互通结果](docs/protocol-results.md)
 - [许可证说明](docs/licensing.md)
 
