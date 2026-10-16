@@ -76,7 +76,7 @@ export async function verifyProtocol({ runTests = true } = {}) {
   finally { recovered.vmk.fill(0); }
   await removeArtifacts(['protocol-result.json', 'created-result.json']);
   const report = { generatedAt: new Date().toISOString(), model: 'PHB110', api: 35,
-    tests: ['Android instrumentation VaultTest: 3 passed', 'Node restores Android-modified backup',
+    tests: ['Android instrumentation VaultTest: 4 passed', 'Node restores Android-modified backup',
       'Unchanged account preserves revision and ciphertext', 'Node recovers Android-created vault'],
     loginKdf: { memoryKiB: 32768, iterations: 3, parallelism: 1 },
     vaultKdf: { memoryKiB: 65536, iterations: 3, parallelism: 1 } };

@@ -30,3 +30,14 @@
 - 第一轮 Windows 命令封装错误发生在测试安装前，临时云资源已清理；修复封装并独立验证后，重新创建环境完成上述测试。清理异常现在不会覆盖原始测试失败原因。
 - 运行：设置 `JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、`AUTHBOX_CF_TEST_ZONE`、`AUTHBOX_CF_TEST_HOST`，执行 `node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android`。测试 gate 与配置只在独立测试 APK 中，生产 API bundle 不含测试接口。原始报告在忽略的 `.cache/api/cloud/android-service-report.json`。
 - Android Lint 通过；已有回归的 46 项协议、2 项 HTTP、157 项本地接口与 9 项正式入口检查全部通过。
+
+## 最终界面、状态保护与复测
+
+- 注册、登录、既有设备身份登录、刷新、退出、下载并解锁、离线解锁、搜索、分组显示与收藏同步已接入开发界面。应用内没有生产地址或测试 gate，测试配置仅放入独立 instrumentation APK。
+- PHB110 的 `ScreenTest` 最终独立运行 1 项通过，6.476 秒：实际输入保险库密码、显示合成账号和分组、搜索筛选、Home 退后台、正常返回和 Activity 重建。暂停立即锁定，返回后账号与验证码均不显示；核对 FLAG_SECURE。没有改变系统安全策略。
+- 先前 ActivityScenario 生命周期与收尾会启动测试辅助 Activity，设备报告系统启动确认窗口并造成测试等待。最终改为正常启动/Home 和生命周期监听，不依赖辅助 Activity；没有要求关闭手机安全功能。
+- `AccountStateTest` 1 项通过，1.340 秒：模拟已持久化但未确认的刷新结果，拒绝重放旧刷新令牌；可离线解锁，待上传内容保留。密文文件中没有测试令牌或 OTP 明文；文件被破坏后拒绝加载，原文件不被自动清空。
+- `VaultTest` 扩为 4 项，最终 6.261 秒通过：追加全部 18 组 RFC 6238 SHA1/SHA256/SHA512 向量的 6/8 位结果及非默认周期边界。Node 再次恢复 Android 修改和新建的保险库。
+- 最终 Keystore 进程重建两轮仍各 2 项通过。补充下载时的版本回退、密钥代次回退与同一 revision 内容变化保护后，再次完成三轮免费云端联调（每轮 2 项，10.502 / 9.799 / 3.870 秒），清理 1 项通过；免费套餐与临时资源删除再次确认。
+- 最终 debug APK、测试 APK 和 Lint 均通过。Lint 为 0 错误、7 项关于目标 SDK 与依赖新版本的提醒；没有关闭检查掩盖问题。当前目标 API 35 与 pinned 工具链用于本次 PHB110 验证，发布前需另做 SDK 与依赖更新检查。
+- 待后续实现：扫码/导入、账号与分组标签完整编辑、设备批准 UI、冲突合并、系统凭据/生物识别快捷解锁、闲置锁定、Room/WorkManager、完整恢复流程及正式发布验收。没有宣称整个 Android 阶段完成。

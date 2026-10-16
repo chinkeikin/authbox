@@ -10,6 +10,22 @@ class VaultTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private fun fixture(): JSONObject = JSONObject(instrumentation.context.assets.open("protocol.json").bufferedReader().use { it.readText() })
 
+    @Test fun rfcTotpAlgorithmsAndDigits() {
+        val vectors = fixture().getJSONArray("rfcTotpVectors")
+        for (index in 0 until vectors.length()) {
+            val vector = vectors.getJSONObject(index)
+            val config = obj("secret" to vector.getString("secret"), "algorithm" to vector.getString("algorithm"), "digits" to 8, "period" to 30)
+            val millis = vector.getLong("seconds") * 1000
+            assertEquals(vector.getString("code"), VaultCrypto.totp(config, millis))
+            config.put("digits", 6)
+            assertEquals(vector.getString("code").takeLast(6), VaultCrypto.totp(config, millis))
+        }
+        val config = obj("secret" to "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "algorithm" to "SHA1", "digits" to 8, "period" to 60)
+        assertEquals(VaultCrypto.totp(config, 59999), VaultCrypto.totp(config, 0))
+        assertEquals(VaultCrypto.totp(config, 60000), VaultCrypto.totp(config.copy().put("period", 30), 30000))
+        assertThrows(Exception::class.java) { VaultCrypto.totp(config, -1) }
+    }
+
     @Test fun crossPlatformRoundTrip() {
         val input = fixture()
         val vault = VaultCrypto.restore(input.getString("backup"), input.getString("password"))

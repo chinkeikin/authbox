@@ -2,7 +2,7 @@
 
 AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责账号管理，Chrome 扩展只负责查看、搜索和复制验证码，NAS 主动拉取加密备份。
 
-跨端协议及账号、设备、会话和密文同步服务核心已实现，通过本地与 Cloudflare 免费环境验证。Android 和 Chrome 客户端尚未建立，当前未部署生产服务。
+跨端协议及账号、设备、会话和密文同步服务核心已实现。Android 工程已建立，Keystore、账号登录与加密同步通过 PHB110 和 Cloudflare 免费环境联调。Android 完整管理功能、Chrome 扩展仍在后续阶段，当前未部署生产服务。
 
 ## 第一版范围
 
@@ -23,6 +23,8 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [协议与真机互通结果](docs/protocol-results.md)
 - [账号与同步服务](services/api/README.md)
 - [服务验证记录](docs/api-results.md)
+- [Android 工程与构建](apps/android/README.md)
+- [Android 真机及云端联调记录](docs/android-results.md)
 - [许可证说明](docs/licensing.md)
 
 ## 仓库组织
@@ -39,13 +41,13 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 | `tools/feasibility/` | 已建立的运行时、真机和环境验证探针 |
 | `docs/` | 需求、方案、开发步骤及运行说明 |
 
-`packages/protocol/`、`services/api/` 已建立，客户端和 NAS 业务模块仍为规划目录；可行性探针独立于正式业务工程。
+`packages/protocol/`、`services/api/`、`apps/android/` 已建立，Chrome 和 NAS 业务模块仍为规划目录；可行性探针独立于正式业务工程。
 
 ## 开发方式
 
 每个步骤形成可评审的独立改动，完成对应检查后提交并及时推送。提交说明记录改动、验证和限制。真实验证密钥、备份、令牌及部署秘密不进入 Git。
 
-执行 `npm test` 验证协议、HTTP 边界、SQLite API 和正式打包入口，执行 `npm run build:api` 生成本地部署包。服务核心通过免费云端完整接口验证；Google 真实授权、正式客户端生命周期、客户端联调和完整 NAS 恢复仍按后续阶段验证。
+执行 `npm test` 验证协议、HTTP 边界、SQLite API 和正式打包入口，执行 `npm run build:api` 生成本地部署包。Android 构建、合成测试材料及免费云端联调命令见客户端说明；Google 真实授权、完整客户端功能和 NAS 恢复仍按后续阶段验证。
 
 ## 许可证
 

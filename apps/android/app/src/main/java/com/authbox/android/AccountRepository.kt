@@ -62,10 +62,12 @@ class ApiClient(val origin: String, private val headers: Map<String, String> = e
     }
 }
 
+internal fun accountNamespace(origin: String, username: String): String = "authbox.account." + MessageDigest.getInstance("SHA-256")
+    .digest("$origin/$username".toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+
 class AccountRepository(context: Context, val api: ApiClient, val username: String, testNamespace: String? = null) {
     init { require(username.matches(Regex("[a-z][a-z0-9_]{2,31}"))) }
-    private val namespace = testNamespace ?: "authbox.account." + MessageDigest.getInstance("SHA-256")
-        .digest("${api.origin}/$username".toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+    private val namespace = testNamespace ?: accountNamespace(api.origin, username)
     private val box = KeystoreBox(context, namespace)
     private var state = box.read("state")?.let { parseObject(decodeUtf8(it)) } ?: obj("version" to 1,
         "origin" to api.origin, "username" to username, "identityId" to UUID.randomUUID().toString())
@@ -84,10 +86,10 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
 
     private fun session(): JSONObject = state.optJSONObject("auth") ?: throw IllegalStateException("请先登录")
     private fun access(): String = session().getJSONObject("session").getString("accessToken")
-    fun role(): String? = state.optJSONObject("auth")?.getJSONObject("device")?.getString("role")
-    fun revision(): Long? = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it).getLong("revision") }
-    fun hasPending(): Boolean = state.has("pending")
-    fun isUnlocked(): Boolean = unlocked != null
+    @Synchronized fun role(): String? = state.optJSONObject("auth")?.getJSONObject("device")?.getString("role")
+    @Synchronized fun revision(): Long? = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it).getLong("revision") }
+    @Synchronized fun hasPending(): Boolean = state.has("pending")
+    @Synchronized fun isUnlocked(): Boolean = unlocked != null
     @Synchronized fun lock() { unlocked?.close(); unlocked = null }
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(unlocked) { "请先解锁保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
 
@@ -198,7 +200,11 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         try {
             val prior = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it) }
             require(prior == null || (prior.getString("vaultId") == opened.snapshot.getString("vaultId") &&
-                opened.snapshot.getLong("revision") >= prior.getLong("revision"))) { "云端版本回退或保险库身份变化" }
+                opened.snapshot.getLong("revision") >= prior.getLong("revision") &&
+                opened.snapshot.getLong("keyGeneration") >= prior.getLong("keyGeneration") &&
+                (opened.snapshot.getLong("revision") != prior.getLong("revision") || opened.snapshot.getString("digest") == prior.getString("digest")))) {
+                "云端版本回退或保险库身份变化"
+            }
             save(state.copy().put("backup", encoded))
             lock(); unlocked = opened
         } catch (error: Throwable) { opened.close(); throw error }
