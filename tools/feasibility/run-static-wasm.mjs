@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { argon2Sync, randomBytes } from 'node:crypto';
+import { argon2Sync, randomBytes, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { argon2id as nobleArgon2id } from '@noble/hashes/argon2.js';
@@ -17,7 +17,7 @@ const mf = new Miniflare(convertV4MiniflareOptions({
 }));
 const samples = [];
 async function request(path, authorized = true, method = 'POST') {
-  return mf.dispatchFetch(`https://probe.invalid${path}`, { method, headers: authorized ? { Authorization: `Bearer ${token}` } : {} });
+  return mf.dispatchFetch(`https://probe.invalid/probe/${randomUUID()}${path}`, { method, headers: authorized ? { Authorization: `Bearer ${token}` } : {} });
 }
 try {
   assert.equal((await request('/wasm', false)).status, 401);

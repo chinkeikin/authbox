@@ -65,15 +65,29 @@ CPU 数值来自 Cloudflare 实时执行记录，不是外部请求墙钟。Anal
 
 复现使用 `npm run verify:cloudflare:preview`。报告位于 `.cache/feasibility/cloudflare/preview/report.json`；正式探针为 `npm run verify:cloudflare`，报告位于 `.cache/feasibility/cloudflare/report.json`。配置、日志和生成物均被 Git 忽略。
 
-## 下一步
-
-### 静态 WASM 本地验证
+## 静态 WASM
 
 固定 hash-wasm 4.12.0 与发布源码 SHA256，从包内提取原始 Argon2 和 BLAKE2b WASM，不修改二进制或算法。构建时只替换模块缓存与动态编译回退，改为两个静态导入；未登记模块直接拒绝，不替换全局 WebAssembly。版本、源码或预期加载片段变化时停止构建。打包产物保留 MIT 许可及相关 C 实现声明。
 
 `npm run verify:worker:static-wasm` 在本地 workerd 通过 5 类交叉校验：32 MiB 服务端参数、Unicode 密码、变化盐、64 MiB 客户端参数及含 secret 的双通道输入。输出同时符合 Node 原生 argon2Sync、未适配的 hash-wasm 和 noble；不同盐的并发请求也一致。32 MiB 基础输入本地请求墙钟约 63 ms，不能作为正式 CPU 资格。完整 RFC 9106 第 5.3 节仍通过 noble 验证，hash-wasm 的公开 API 不提供 associated data，未冒充完整 RFC 用例。
 
-自有域名正式执行及 CPU 归因已验证，纯 JavaScript 候选未通过免费档条件。静态导入已通过本地兼容与正确性检查，下一步执行正式域名 CPU 测量；不为运行额度降低密码哈希强度，也不开通未经用户决定的付费方案。
+### 自有域名正式执行
+
+上传同一 JavaScript 产物和两个 `application/wasm` 模块，候选参数保持 32 MiB、3 次迭代、并行度 1。首次 3 次顺序和 2 个并发请求全部返回 200 且输出一致，但日志未按请求标识关联，Analytics 未返回聚合行，不能将这一轮当作免费档验收通过。
+
+复测曾在方法检查返回 1104 / Script not found，该轮尚未执行候选 KDF，已单独保留失败记录并清理。随后采用全新 Worker 名称，并要求自有入口连续 6 次符合预期才开始测量，避免以单次就绪响应忽略传播状态。
+
+新名称复测的鉴权、方法、未知路由及 RFC 检查均通过，5 次候选请求再次全部 200、输出一致。该独立探针的实时日志记录到 5 条高开销执行：345、330、305、208、275 ms，均为 `outcome=ok`；另有一条 23 ms 记录及入口探测的小开销记录。请求标识未成功关联，不能把这 5 个 CPU 数字逐一分配给顺序或并发标签；高开销记录数量与本次 5 次候选调用一致。完整证据留在 `.cache/feasibility/cloudflare/custom-domain-static-wasm-report.json`，`correlatedCandidateCpuCount` 明确为 0，不伪称逐请求测量已通过。
+
+静态加载已证明兼容和输出正确，本轮执行也已观察到远超 10 ms 的 CPU 开销，不能依据 5 次成功承诺免费档可靠性。Cloudflare 官方说明 isolate 对偶尔超过限额有一定弹性，持续超限仍会被终止。当前不按免费档采用；付费档的真实并发、CPU 限制及完整认证接口还未验证。
+
+所有本轮临时 Worker 及域名绑定已删除并延迟复核。托管证书保持独立生命周期记录；没有开通付费订阅，也没有修改已有 DNS 记录。
+
+## 后续部署选择
+
+建议保留 Workers 架构，在用户接受预算后验证 Workers Paid。按本次查询的官方价格，最低 5 美元/月，含每月 1000 万次请求与 3000 万 CPU 毫秒，超额另计；不是整个平台所有服务的总价或硬性费用上限。付费后仍需重新测试，不能以本轮免费账号的弹性成功替代付费档验收。
+
+若要求零新增月费，可另行评估由现有 NAS 承担认证计算；这会增加对家中供电、网络及 NAS 在线的依赖，需要修改部署方案及验证恢复可用性，当前未安装或开放该服务。部署路线等待用户决定，不降低密码哈希参数，不自行切换认证协议或开通收费项目。
 
 当前官方文档仍将 `node:crypto` 的 argon2 和 argon2Sync 列为不支持，不能以 Node.js 本机支持推断 Workers 可用。
 

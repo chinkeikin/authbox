@@ -20,7 +20,7 @@ export default {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
-    const action = new URL(request.url).pathname;
+    const action = new URL(request.url).pathname.replace(/^\/probe\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=\/)/, '');
     const headers = { 'Cache-Control': 'no-store' };
     try {
       if (action === '/rfc') {

@@ -27,7 +27,7 @@ if (customDomain) {
   assert.ok(/^[a-z0-9.-]+$/.test(testZone) && testZone.includes('.'), 'Configure AUTHBOX_CF_TEST_ZONE');
   assert.ok(/^[a-z0-9.-]+$/.test(testHostname) && testHostname.endsWith(`.${testZone}`), 'Configure a test subdomain in AUTHBOX_CF_TEST_HOST');
 }
-const name = routeOnly ? `authbox-feasibility-route-${randomUUID().slice(0, 8)}` : 'authbox-feasibility';
+const name = `authbox-feasibility-${routeOnly ? 'route' : staticWasm ? 'wasm' : 'kdf'}-${randomUUID().slice(0, 8)}`;
 const marker = routeOnly ? 'minimal-v1' : 'synthetic-v1';
 const scriptPath = `/accounts/${accountId}/workers/scripts/${name}`;
 const ownershipTag = `authbox-probe-${randomUUID()}`;
@@ -196,13 +196,14 @@ try {
       try {
         const raw = typeof event.data === 'string' ? event.data : Buffer.from(event.data).toString('utf8');
         const data = JSON.parse(raw);
-        const headers = data.event?.request?.headers ?? {};
-        const id = Object.entries(headers).find(([key]) => key.toLowerCase() === 'x-authbox-probe-request-id')?.[1];
+        const eventUrl = data.event?.request?.url ? new URL(data.event.request.url) : undefined;
+        const pathMatch = eventUrl?.pathname.match(/^\/probe\/([a-f0-9-]{36})(\/.*)$/);
+        const id = pathMatch?.[1];
         const label = requestLabels.get(id);
-        if (!label) return;
-        const pathname = data.event?.request?.url ? new URL(data.event.request.url).pathname : undefined;
+        const pathname = pathMatch?.[2] ?? eventUrl?.pathname;
+        if (!label) report.unmatchedTailCount = (report.unmatchedTailCount ?? 0) + 1;
         report.tail.push({
-          label,
+          label, correlated: Boolean(label),
           path: ['/', '/rfc', '/noble', '/wasm', '/unknown'].includes(pathname) ? pathname : undefined,
           outcome: data.outcome, cpuTimeMs: data.cpuTime, wallTimeMs: data.wallTime,
           exceptionNames: data.exceptions?.map((exception) => exception.name),
@@ -231,8 +232,9 @@ try {
     const start = performance.now();
     const requestId = randomUUID();
     requestLabels.set(requestId, label);
-    const response = await fetch(`${baseUrl}${route}`, {
-      method, headers: { Accept: 'application/json', 'X-AuthBox-Probe-Request-Id': requestId, ...(authorized ? { Authorization: `Bearer ${probeToken}` } : {}) },
+    const url = new URL(`${baseUrl}${routeOnly ? route : `/probe/${requestId}${route}`}`);
+    const response = await fetch(url, {
+      method, headers: { Accept: 'application/json', ...(authorized ? { Authorization: `Bearer ${probeToken}` } : {}) },
       redirect: 'error', signal: AbortSignal.timeout(30000),
     });
     const body = await response.text();
@@ -263,6 +265,7 @@ try {
   }
 
   const readinessAttempts = customDomain ? 61 : 16;
+  let consecutiveReady = 0;
   for (let attempt = 0; attempt < readinessAttempts; attempt += 1) {
     let status;
     let reachedProbe = false;
@@ -275,7 +278,8 @@ try {
       if (!customDomain) throw error;
       report.lastReadinessNetworkError = error.cause?.code ?? error.name;
     }
-    if (status === (routeOnly ? 200 : 401) && reachedProbe) break;
+    consecutiveReady = status === (routeOnly ? 200 : 401) && reachedProbe ? consecutiveReady + 1 : 0;
+    if (consecutiveReady >= (customDomain ? 6 : 1)) break;
     if (attempt === readinessAttempts - 1) {
       await request(routeOnly ? '/' : '/rfc', 'readiness-failure', { authorized: false, method: routeOnly ? 'GET' : 'POST' });
       await delay(2000);

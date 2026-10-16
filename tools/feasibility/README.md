@@ -39,9 +39,11 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 - `npm run verify:cloudflare:domain-route` 和 `npm run verify:cloudflare:domain`：按本机环境变量中的授权 Zone 和测试子域名创建自定义入口，分别验证最小响应和固定 KDF。
 - `npm run verify:cloudflare:domain-safety`：本地检查 8 类域名变更计划，只允许指定新增域名，不访问云端。
 - `npm run verify:worker:static-wasm`：固定上游版本和源码摘要，在本地 workerd 校验静态 WASM；5 类输入与 Node 原生、原库和 noble 交叉比对，并检查不同盐的并发请求。
-- `npm run verify:cloudflare:domain-static-wasm`：同样的授权域名流程，上传两个预编译 WASM 模块，测量 3 次顺序和 2 个并发候选请求。实时日志通过随机请求标识关联，只保存标签、结果与 CPU 字段。
+- `npm run verify:cloudflare:domain-static-wasm`：同样的授权域名流程，上传两个预编译 WASM 模块，测量 3 次顺序和 2 个并发候选请求。实时日志尝试按随机路径标识关联，只保存标签、已知路由、结果与 CPU 字段；当前正式环境尚未关联成功，报告同时保留未关联事件及关联数量，不按回调顺序强行匹配。
 
 部署程序先在本地 workerd 验证同一打包产物，等待云端控制面传播，结束后核对独立归属标签并删除，只操作本次创建的临时资源。报告位于 `.cache/feasibility/cloudflare/`。临时探针 30 分钟失效；路由对照的公开常量不执行密码哈希。
+
+每轮正式探针采用全新名称；自有入口必须连续 6 次响应符合预期。入口传播错误与候选资源失败分别记录。CPU 是否可用和候选 CPU 是否逐请求关联是不同字段，不能用入口的 0 ms 记录冒充 KDF 开销。
 
 没有取得正式 CPU 数据或就绪失败时，报告明确保留未完成状态。已知负面结果见 [云端记录](../../docs/feasibility/cloudflare.md)，不能把探针程序执行结束或预览 HTTP 200 当作免费档验收通过。
 

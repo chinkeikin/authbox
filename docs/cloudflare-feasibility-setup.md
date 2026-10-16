@@ -23,6 +23,8 @@
 
 仅在域名所有者已授权后，在本机设置 `AUTHBOX_CF_TEST_ZONE=example.com` 和 `AUTHBOX_CF_TEST_HOST=authbox-test.example.com`。执行 `npm run verify:cloudflare:domain-route` 检查最小响应；`npm run verify:cloudflare:domain` 检查固定 KDF。
 
+`npm run verify:worker:static-wasm` 先在本地检查静态导入与跨实现输出；`npm run verify:cloudflare:domain-static-wasm` 使用同一临时域名流程检查预编译 WASM 的正式执行。每轮 Worker 使用全新名称，入口连续就绪后才执行候选计算。
+
 程序使用 Workers 自定义域名接口自动配置目标记录与证书。要求令牌能读取对应 Zone，绑定权限由 Workers Scripts Write 提供；直接 DNS 读取权限不作为前提。先取得服务端变更计划，无冲突、无其他更新删除且只新增指定子域名时才执行；覆盖已有 DNS、已有源站及绑定范围的选项全部关闭。
 
 结束后只删除本次归属的域名绑定和 Worker，并保存复核结果。Cloudflare 不保证随绑定删除托管证书，证书标识仅保存本机，不能把 Worker 已删除等同于证书已删除。依据：[自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。
