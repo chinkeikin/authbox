@@ -2,7 +2,7 @@
 
 本项目采用标准 GNU Affero General Public License version 3，SPDX 标识为 `AGPL-3.0-only`。
 
-根目录 [LICENSE](../LICENSE) 保存第三版完整标准文本，未修改许可条款，也不附加自定义署名、品牌展示、禁止商用或其他额外限制。作者和上游仓库信息在 [README](../README.md) 中标明，适用义务以标准许可文本为准。
+根目录 [LICENSE](../LICENSE) 保存第三版完整标准文本，未修改许可条款，也不附加自定义署名、品牌展示、禁止商用或其他额外限制，适用义务以标准许可文本为准。
 
 ## 发布与依赖
 

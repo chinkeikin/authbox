@@ -40,12 +40,6 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 
 Cloudflare 免费档的密码哈希开销、Android 与扩展跨端解密、Google 登录和 NAS 网络可达性需要先做可行性验证。
 
-## 许可证与来源
+## 许可证
 
 本项目采用标准 GNU Affero General Public License version 3，SPDX 标识为 `AGPL-3.0-only`。完整条款见 [LICENSE](LICENSE)，不附加自定义许可限制。详见[许可证说明](docs/licensing.md)。
-
-Copyright (C) 2026 Jayden (chinkeikin).
-
-项目作者：Jayden（GitHub：[chinkeikin](https://github.com/chinkeikin)）。
-
-上游仓库：[chinkeikin/authbox](https://github.com/chinkeikin/authbox)。
