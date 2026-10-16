@@ -21,7 +21,7 @@
 
 ## 依赖许可
 
-本阶段候选库 `@noble/hashes`、`hash-wasm`、`esbuild`、`miniflare` 使用 MIT，`playwright-core` 使用 Apache-2.0，`wrangler` 使用 MIT 或 Apache-2.0。引入运行客户端或发布打包依赖时，另行携带对应许可声明。
+本阶段候选库 `@noble/hashes`、`hash-wasm`、`jose`、`esbuild`、`miniflare` 使用 MIT，`playwright-core` 使用 Apache-2.0，`wrangler` 使用 MIT 或 Apache-2.0。引入运行客户端或发布打包依赖时，另行携带对应许可声明。
 
 Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta，使用其导出的官方 V4 配置转换接口。该版本属于本地测试工具，不代表云端服务已验证。
 
@@ -44,3 +44,9 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 运行 `npm run verify:nas`，在同一 NAS 环境通过 HTTPS 下载公开固定样本，校验 SHA256，再验证错误摘要不替换旧文件、HTTP 被拒绝和临时文件清理。脚本从标准输入执行，不在 NAS 上安装服务或创建定时任务。
 
 该样本拉取不包含 Cloudflare 备份鉴权和加密恢复；两者另行验证。Cloudflare 令牌配置见 [测试环境说明](../../docs/cloudflare-feasibility-setup.md)。
+
+## Google 身份令牌
+
+执行 `npm run verify:google`，在 Node 和 workerd 检查合成 RS256 JWT 的签名与身份约束。默认公钥来源固定为 Google，测试明确注入本地公钥。脚本不会保存测试私钥或原始令牌，不依赖真实 Google 客户端。
+
+22 类用例通过只证明校验逻辑及运行时兼容，不代表 OAuth 回调、真实 Google JWKS 刷新、一次性 nonce 消费、账号绑定或会话已完成。结果保存在 `.cache/feasibility/google/report.json`。

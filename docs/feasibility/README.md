@@ -8,7 +8,7 @@
 | 本地 workerd Argon2id | 已验证兼容性 | [运行时结果](worker.md)，云端 CPU 仍待验证 |
 | Android AES GCM | 真机通过 | [PHB110 结果](android.md)，Keystore 和手机 KDF 未验证 |
 | 浏览器加密和 KDF | Chrome 页面环境通过 | [浏览器结果](browser.md)，MV3 存储及生命周期留待扩展工程验证 |
-| Google 身份登录 | 待验证 | 先验证令牌检查边界，真实授权需要 OAuth 客户端配置 |
+| Google 身份登录 | 令牌校验探针通过 | [Google 结果](google.md)，真实授权及远程公钥刷新待验证 |
 | NAS 环境 | 只读检查通过 | Linux x86_64、Python 3.12.3、OpenSSL 3.0.13、Docker 可用 |
 | NAS 主动 HTTPS 拉取 | 真实 NAS 样本拉取通过 | [NAS 结果](nas.md)，Cloudflare 鉴权备份及加密恢复待验证 |
 | Cloudflare 实际限制 | 待配置 | [专用 Token 配置](../cloudflare-feasibility-setup.md)，不默认开通付费 |
