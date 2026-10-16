@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-10-16T07:58:17.102Z",
+  "node": "v24.13.0",
+  "unitTests": {
+    "command": "npm test",
+    "passed": 37,
+    "failed": 0
+  },
+  "loginProfile": {
+    "memoryKiB": 32768,
+    "iterations": 3,
+    "parallelism": 1,
+    "hashBytes": 32,
+    "changed": false
+  },
+  "vaultProfile": {
+    "memoryKiB": 65536,
+    "iterations": 3,
+    "parallelism": 1,
+    "hashBytes": 32
+  },
+  "cloudResourcesChanged": false,
+  "paidServicesEnabled": false,
+  "browser": {
+    "generatedAt": "2026-10-16T07:55:02.935Z",
+    "browser": "155.0.8059.41",
+    "context": "Isolated Chrome page, restrictive CSP, offline after bundle loaded",
+    "csp": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'",
+    "checks": [
+      "18 RFC TOTP vectors",
+      "Node backup by password",
+      "Node backup by recovery",
+      "Offline restored TOTP",
+      "Untrusted KDF rejected",
+      "Published native vector by both secrets",
+      "Chrome backup restored in Node by both secrets",
+      "All four entity types agree"
+    ],
+    "limits": "Not an installed MV3 extension; storage, lock and lifecycle are pending"
+  },
+  "android": {
+    "generatedAt": "2026-10-16T07:55:08.409Z",
+    "model": "PHB110",
+    "apiLevel": "35",
+    "context": "Real Android app_process; JCA AES-GCM, Bouncy Castle Argon2id/HKDF, synthetic data only",
+    "checks": [
+      "Node backup password unwrap",
+      "Node backup recovery unwrap",
+      "Authenticated manifest and all entities",
+      "AAD tampering rejected",
+      "Android generated both wraps and encrypted backup",
+      "Android backup restored in Node by both secrets",
+      "Four entity types and restored TOTP agree",
+      "Published native vector restored and re-encrypted on Android"
+    ],
+    "cleanupVerified": true,
+    "limits": "No APK, Keystore, application storage or lifecycle verification"
+  }
+}

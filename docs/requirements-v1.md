@@ -4,7 +4,7 @@
 
 日期：2026年10月16日
 
-状态：需求与技术设计；阶段 1 可行性验证进行中，已验证和待验证项见 [验证进度](feasibility/README.md)，正式业务功能尚未实现
+状态：阶段 1 的免费 SQLite DO 认证已通过，阶段 2 跨端密码学与备份格式实现中；已验证和待验证项见 [验证进度](feasibility/README.md) 与 [协议结果](protocol-results.md)，正式客户端和业务服务尚未实现
 
 第一版提供手机端完整管理、Chrome 扩展只读取码、自建账号及可选 Google 绑定。验证密钥和管理信息在客户端加密后同步到 Cloudflare，各设备本地生成验证码；NAS 主动下载可独立恢复的加密备份。目标是账号多时快速找到验证码，同时覆盖手机丢失、多设备使用、误删和云端不可访问的恢复场景。
 
@@ -138,7 +138,7 @@ Google 登录只替代本次平台密码输入，不自动解密保险库，也�
 
 ### 5.4 登录密码哈希与 Workers 资源
 
-建议登录密码在服务端使用 Argon2id 和成熟库，候选参数为内存 32 MiB、迭代 3、并行度 1，最终参数由部署环境基准测试决定，并满足当期安全基线。客户端保险库 KDF 参数独立，不混用。慢哈希与独立盐的依据见 [OWASP 密码存储指南](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)。
+登录密码在服务端使用 Argon2id 和成熟库，当前固定参数为内存 32 MiB、迭代 3、并行度 1、32 字节输出，已通过免费 SQLite DO 验证；不因免费部署降低强度。客户端保险库 KDF 参数独立，不混用。慢哈希与独立盐的依据见 [OWASP 密码存储指南](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)。
 
 普通 Workers 免费档单次请求 CPU 限额为 10ms，且当前 `node:crypto` 不提供原生 Argon2。用户已决定优先验证免费 Workers 加 SQLite Durable Objects，由对象承担同强度 Argon2id 和账号存储；DO 有独立执行限制，不能以普通 Worker 的结果替代其验证。真实 CPU、内存、并发及打包兼容必须实际执行，不能仅在本地 Node 验证。该方案不通过后再考虑 Firebase，暂不考虑 Supabase；保持免费、自定义用户名密码，不为免费额度降低密码哈希强度，也不擅自改成客户端哈希加快速服务端哈希的自创协议。见 [DO 验证记录](feasibility/durable-object.md)、[DO 限制](https://developers.cloudflare.com/durable-objects/platform/limits/) 和 [crypto 兼容范围](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)。
 
@@ -158,7 +158,7 @@ Google 登录只替代本次平台密码输入，不自动解密保险库，也�
 | 恢复封装 | 独立随机 256 位恢复密钥经标准 HKDF 域分离后封装 VMK |
 | 本机便捷解锁 | Android Keystore 保护本机封装，配合系统生物识别或设备凭据 |
 
-客户端 KDF 建议先评估 64 MiB、迭代 3、并行度 1，目标设备解锁等待控制在约 0.3 至 2 秒；这是性能目标，不是已测结果。参数写入封装头，跨端使用同一实现规范；不得自动静默降级。格式支持未来增加算法和参数版本。Argon2id 算法与测试向量见 [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html)。
+客户端 KDF 固定为 64 MiB、迭代 3、并行度 1、32 字节输出；参数写入封装头，跨端使用同一实现规范，不得自动静默降级。目标设备解锁等待约 0.3 至 2 秒为性能目标，独立探针通过不代替正式应用表现。当前格式只接受固定参数，未来增加算法或参数须显式版本演进。见 [协议实现](protocol-v1.md)、[验证结果](protocol-results.md) 和 [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html)。
 
 保险库密码、VMK、恢复解密密钥和验证密钥不得发送到后端。Google 令牌、登录密码或会话令牌不能用来直接推导 VMK。账号登录密码仅为认证通过 TLS 发送，不能宣称它也从未到达服务端。
 

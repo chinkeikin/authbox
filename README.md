@@ -18,6 +18,8 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [第一版需求与技术方案](docs/requirements-v1.md)
 - [开发路线](docs/roadmap.md)
 - [可行性验证进度与结果](docs/feasibility/README.md)
+- [跨端密码学与备份协议](docs/protocol-v1.md)
+- [协议与真机互通结果](docs/protocol-results.md)
 - [许可证说明](docs/licensing.md)
 
 ## 仓库组织
@@ -40,7 +42,7 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 
 每个步骤形成可评审的独立改动，完成对应检查后提交并及时推送。提交说明记录改动、验证和限制。真实验证密钥、备份、令牌及部署秘密不进入 Git。
 
-Cloudflare 免费档的密码哈希开销、Android 与扩展跨端解密、Google 登录和 NAS 网络可达性需要先做可行性验证。
+免费 SQLite DO 的密码认证已通过真实环境可行性验证；协议模块已通过本地、Chrome 离线和 Android 备份互通。Google 真实授权、正式客户端生命周期、权限和完整 NAS 恢复仍按后续阶段验证。
 
 ## 许可证
 

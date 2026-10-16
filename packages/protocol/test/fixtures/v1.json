@@ -1,0 +1,48 @@
+{
+  "warning": "PUBLIC SYNTHETIC VECTOR ONLY. Fixed keys, salts and nonces must never encrypt real data.",
+  "producer": "Node native Argon2id, HKDF and AES-GCM; no protocol implementation imports",
+  "password": "AuthBox 协议公开测试🔐é",
+  "recoveryKey": "ABR1-IFBEGRCFIZDUQSKKJNGE2TSPKBIVEU2UKVLFOWCZLJNVYXK6L5QA-zlWpodBG",
+  "vmkHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "payloads": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "type": "account",
+      "payload": {
+        "issuer": "测试",
+        "account": "fixture@example.invalid",
+        "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "algorithm": "SHA1",
+        "digits": 8,
+        "period": 30,
+        "favorite": true
+      }
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "type": "group",
+      "payload": {
+        "name": "工作",
+        "order": 0
+      }
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "type": "tag",
+      "payload": {
+        "name": "常用"
+      }
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "type": "settings",
+      "payload": {
+        "defaultView": "favorites"
+      }
+    }
+  ],
+  "entityAadUtf8": "[\"AuthBox\",1,\"entity\",\"50000000-0000-4000-8000-000000000001\",\"10000000-0000-4000-8000-000000000001\",\"account\",1,1]",
+  "passwordWrapAadUtf8": "[\"AuthBox\",1,\"vmk-wrap\",\"50000000-0000-4000-8000-000000000001\",1,\"password\",{\"hashBytes\":32,\"iterations\":3,\"memoryKiB\":65536,\"name\":\"argon2id\",\"parallelism\":1,\"salt\":\"ERITFBUWFxgZGhscHR4fIA\",\"version\":19}]",
+  "recoveryWrapAadUtf8": "[\"AuthBox\",1,\"vmk-wrap\",\"50000000-0000-4000-8000-000000000001\",1,\"recovery\",{\"info\":\"AuthBox/v1/vmk-recovery\",\"name\":\"HKDF-SHA256\",\"salt\":\"ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A\"}]",
+  "backup": "{\"appVersion\":\"0.0.0\",\"createdAt\":\"2026-10-16T00:00:00.000Z\",\"digest\":\"aWR6LGJAuBhgNUI-wTQwgKUpAsp7F6RvMXHI2x2ShQk\",\"entities\":[{\"ciphertext\":\"Alt2RTLxVuCk4JTh7tHVDb0ckraGbE4mevnsT3c1HJV3nqkA3RV_dKP5fNk0vO94neQ1pZg8AYwsQyeVUPyRRvIl69IMONLlvUJcogr9-ZjQ2rwybBpKc4zoBX6HxdxlwFymUm3NPsNf1_AOAw_ccUQm9VCdlYGeRXxJRCj1JwbMiR8rliXRcI_sEqOcFr9RiODSYd6bfqN_VyOROKLnR0GYHfohMyLXW_edoZ4\",\"id\":\"10000000-0000-4000-8000-000000000001\",\"keyGeneration\":1,\"nonce\":\"MDEyMzQ1Njc4OTo7\",\"revision\":1,\"type\":\"account\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1},{\"ciphertext\":\"obayEAIqLqSeeNUA8MuEIZRbXiJQV8q6G84MYfrUqJtIMs7zC3pyW0Y9JQ\",\"id\":\"20000000-0000-4000-8000-000000000001\",\"keyGeneration\":1,\"nonce\":\"QEFCQ0RFRkdISUpL\",\"revision\":1,\"type\":\"group\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1},{\"ciphertext\":\"bBcGcZM43LayfwYGFY4sOkCCSixMDY_9eyTYSlMhLQAP\",\"id\":\"30000000-0000-4000-8000-000000000001\",\"keyGeneration\":1,\"nonce\":\"UFFSU1RVVldYWVpb\",\"revision\":1,\"type\":\"tag\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1},{\"ciphertext\":\"AzUEBN1vOFrYE0DqQH7W5o7F_4BMMoDZwEmsfnAbBTjrj6fY4vVzRhDr9A\",\"id\":\"40000000-0000-4000-8000-000000000001\",\"keyGeneration\":1,\"nonce\":\"YGFiY2RlZmdoaWpr\",\"revision\":1,\"type\":\"settings\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1}],\"keyGeneration\":1,\"magic\":\"AUTHBOX-BACKUP\",\"manifest\":{\"ciphertext\":\"L7VL0pSPAP4SykVe95mdu_lYWz-OedX2s0A2dEkjDiS0CQpHOKj4vCPQpAAV7ZOYdJZ8AJnPuyVrL5l7Esj_TYw16_X6OjEK9lTp40dbbrRZWfe-I35Xkw\",\"id\":\"50000000-0000-4000-8000-000000000001\",\"keyGeneration\":1,\"nonce\":\"cHFyc3R1dnd4eXp7\",\"revision\":1,\"type\":\"manifest\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1},\"revision\":1,\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1,\"wraps\":{\"password\":{\"ciphertext\":\"Va2buZO7upu8oYK0wDm7hQAX24TUlkhm75ouYM0Lh9vFsHMG12ARM6wfM1U0O9FF\",\"kdf\":{\"hashBytes\":32,\"iterations\":3,\"memoryKiB\":65536,\"name\":\"argon2id\",\"parallelism\":1,\"salt\":\"ERITFBUWFxgZGhscHR4fIA\",\"version\":19},\"keyGeneration\":1,\"nonce\":\"EBESExQVFhcYGRob\",\"purpose\":\"password\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1},\"recovery\":{\"ciphertext\":\"ZLh8GiPMp3Fdmp7eYoTY6OvJ2f8fg-v0l1DBJZWpUoNgKZ64Ygio3FWdvZ-cXMK5\",\"kdf\":{\"info\":\"AuthBox/v1/vmk-recovery\",\"name\":\"HKDF-SHA256\",\"salt\":\"ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A\"},\"keyGeneration\":1,\"nonce\":\"ICEiIyQlJicoKSor\",\"purpose\":\"recovery\",\"vaultId\":\"50000000-0000-4000-8000-000000000001\",\"version\":1}}}"
+}

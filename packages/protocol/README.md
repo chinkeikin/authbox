@@ -12,4 +12,10 @@
 
 依赖许可见根目录 `THIRD-PARTY-NOTICES.txt`；项目本身保持标准 AGPL-3.0-only。
 
+## 加密与备份
+
+`src/vault.mjs` 提供 AES-256-GCM 实体加密、64 MiB Argon2id 密码封装、独立 HKDF 恢复封装及恢复密钥校验编码。`src/backup.mjs` 提供自包含备份、摘要检查和完整认证后的离线恢复。完整规则、限制与后续服务端事务约束见 [协议 v1](../../docs/protocol-v1.md)。
+
+`test/fixtures/v1.json` 是公开固定向量，含合成密码和测试密钥，不得用于真实加密。执行 `npm test` 运行协议测试；`npm run verify:protocol:browser` 和 `npm run verify:protocol:android` 验证真实运行环境。客户端业务 schema、安装工程、Keystore、MV3 生命周期及账号恢复仍未完成。
+
 依据：[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html)、[RFC 4648](https://www.rfc-editor.org/rfc/rfc4648.html)、[Google Key URI](https://github.com/google/google-authenticator/wiki/Key-Uri-Format)、[OTPAuth](https://github.com/hectorm/otpauth)。
