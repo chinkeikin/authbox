@@ -9,6 +9,9 @@
   },
   "scripts": {
     "verify:worker": "node tools/feasibility/run-worker.mjs",
+    "verify:cloudflare": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs",
+    "verify:cloudflare:route": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --route-only",
+    "verify:cloudflare:preview": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare-preview.mjs",
     "verify:android": "node tools/feasibility/run-android.mjs",
     "verify:android-kdf": "node tools/feasibility/run-android-kdf.mjs",
     "verify:browser": "node tools/feasibility/run-browser.mjs",
@@ -23,6 +26,7 @@
     "jose": "6.2.12",
     "miniflare": "5.20261012.0-beta",
     "playwright-core": "1.64.1",
-    "wrangler": "4.151.0"
+    "wrangler": "4.151.0",
+    "ws": "8.21.0"
   }
 }

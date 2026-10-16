@@ -23,9 +23,23 @@
 
 本阶段候选库 `@noble/hashes`、`hash-wasm`、`jose`、`esbuild`、`miniflare` 使用 MIT，`playwright-core` 使用 Apache-2.0，`wrangler` 使用 MIT 或 Apache-2.0。引入运行客户端或发布打包依赖时，另行携带对应许可声明。
 
+云端实时日志传输固定使用 MIT 许可的 `ws` 8.21.0，初始化帧与已安装 Wrangler 的 trace-v1 协议一致。报告只提取错误和资源字段，不保存原始请求头或日志帧。
+
 Android KDF 探针使用 Bouncy Castle Licence，按官方说明与 MIT 同样理解。探针保留 JAR 内的版权和许可于 [许可文件](licenses/bouncycastle.txt)，不修改项目标准 AGPL 许可。
 
 Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta，使用其导出的官方 V4 配置转换接口。该版本属于本地测试工具，不代表云端服务已验证。
+
+## Cloudflare 云端与对照
+
+按 [专用 Token 配置](../../docs/cloudflare-feasibility-setup.md) 准备被忽略的 `.env.cloudflare` 后运行：
+
+- `npm run verify:cloudflare`：受随机密钥保护的固定 KDF 探针，正式入口就绪后才执行哈希和 Analytics 查询。
+- `npm run verify:cloudflare:route`：全新临时名称，仅返回公开常量，用于排除加密库影响。
+- `npm run verify:cloudflare:preview`：通过官方 Wrangler 远程开发预览运行相同 KDF，停止后核对回环监听已关闭。
+
+部署程序先在本地 workerd 验证同一打包产物，等待云端控制面传播，结束后核对独立归属标签并删除，只操作本次创建的临时资源。报告位于 `.cache/feasibility/cloudflare/`。临时探针 30 分钟失效；路由对照的公开常量不执行密码哈希。
+
+没有取得正式 CPU 数据或就绪失败时，报告明确保留未完成状态。已知负面结果见 [云端记录](../../docs/feasibility/cloudflare.md)，不能把探针程序执行结束或预览 HTTP 200 当作免费档验收通过。
 
 ## Android 真机互通
 

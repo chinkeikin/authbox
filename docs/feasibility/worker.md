@@ -23,4 +23,6 @@
 
 本地 Miniflare 不执行云端免费档全部限制，上表墙钟时间不是 Cloudflare 计费 CPU 时间。标准小向量使用 RFC 指定的 32 KiB，候选认证参数另以 32 MiB 验证，两者用途不同。
 
+后续已执行专用 Token 的 [真实云端验证](cloudflare.md)：远程预览的 5 次候选 KDF 有 2 次触发 1102，正式入口连最小固定文本脚本也返回 1101。两类问题分别记录，目前不能据此采用该候选作为正式认证服务。
+
 依据：[RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html#section-5.3)、[Workers 本地开发](https://developers.cloudflare.com/workers/local-development/)、[Workers CPU 分析](https://developers.cloudflare.com/workers/observability/dev-tools/cpu-usage/)。
