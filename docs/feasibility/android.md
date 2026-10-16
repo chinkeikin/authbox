@@ -12,4 +12,4 @@
 
 复现使用 `npm run verify:android`，环境变量和工具要求见 [探针说明](../../tools/feasibility/README.md)。测试使用的固定 key 和 nonce 仅用于公开向量互通，不可用于真实加密；生产加密必须使用安全随机密钥及不重复 nonce。
 
-这一结果证明 Android JCA 与 WebCrypto 的 AES GCM 字节格式可以互通，尚不证明 Android Keystore、应用锁定、Room 存储、手机 Argon2id 或正式备份格式已完成。后续在应用环境中分别验证。
+这一结果证明 Android JCA 与 WebCrypto 的 AES GCM 字节格式可以互通，尚不证明 Android Keystore、应用锁定、Room 存储或正式备份格式已完成。手机 Argon2id 另见 [KDF 真机结果](android-kdf.md)，后续仍需在应用环境验证。

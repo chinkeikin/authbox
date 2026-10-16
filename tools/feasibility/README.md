@@ -23,6 +23,8 @@
 
 本阶段候选库 `@noble/hashes`、`hash-wasm`、`jose`、`esbuild`、`miniflare` 使用 MIT，`playwright-core` 使用 Apache-2.0，`wrangler` 使用 MIT 或 Apache-2.0。引入运行客户端或发布打包依赖时，另行携带对应许可声明。
 
+Android KDF 探针使用 Bouncy Castle Licence，按官方说明与 MIT 同样理解。探针保留 JAR 内的版权和许可于 [许可文件](licenses/bouncycastle.txt)，不修改项目标准 AGPL 许可。
+
 Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta，使用其导出的官方 V4 配置转换接口。该版本属于本地测试工具，不代表云端服务已验证。
 
 ## Android 真机互通
@@ -30,6 +32,8 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 运行 `npm run verify:android` 前配置 `AUTHBOX_ANDROID_SERIAL`、`JAVA_HOME` 和 `ANDROID_HOME` 或 `AUTHBOX_ANDROID_SDK`。默认构建工具为 36.1.0、编译平台为 android-35，可用 `AUTHBOX_ANDROID_BUILD_TOOLS` 和 `AUTHBOX_ANDROID_PLATFORM` 覆盖。
 
 脚本通过 javac 和 D8 编译临时 JCA 探针，只向明确选择的设备推送独立 dex 文件，经 app_process 运行后删除并核对不存在。它验证 AES 256 GCM 的加解密、UTF8、认证标签及篡改拒绝，不验证应用生命周期、Keystore 或手机 Argon2id。生成物和报告保存在 `.cache/feasibility/android/`。
+
+同样环境下执行 `npm run verify:android-kdf`，下载 SHA256 固定的 `org.bouncycastle:bcprov-jdk15to18:1.86`，编译独立探针。在同一设备验证 Argon2id 标准向量、64 MiB 候选参数、UTF8 密码及盐变化；与浏览器所用 hash-wasm 比对，再删除设备临时文件。结果在 `.cache/feasibility/android-kdf/`。不注册系统加密 Provider，也不代表 Keystore 或正式应用内存压力验证。
 
 ## 浏览器互通和派生
 

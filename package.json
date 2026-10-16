@@ -10,6 +10,7 @@
   "scripts": {
     "verify:worker": "node tools/feasibility/run-worker.mjs",
     "verify:android": "node tools/feasibility/run-android.mjs",
+    "verify:android-kdf": "node tools/feasibility/run-android-kdf.mjs",
     "verify:browser": "node tools/feasibility/run-browser.mjs",
     "verify:google": "node tools/feasibility/run-google.mjs",
     "inspect:nas": "node tools/feasibility/inspect-nas.mjs",
