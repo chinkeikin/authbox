@@ -11,7 +11,8 @@
     "verify:worker": "node tools/feasibility/run-worker.mjs",
     "verify:android": "node tools/feasibility/run-android.mjs",
     "verify:browser": "node tools/feasibility/run-browser.mjs",
-    "inspect:nas": "node tools/feasibility/inspect-nas.mjs"
+    "inspect:nas": "node tools/feasibility/inspect-nas.mjs",
+    "verify:nas": "node tools/feasibility/run-nas.mjs"
   },
   "devDependencies": {
     "@noble/hashes": "2.4.0",

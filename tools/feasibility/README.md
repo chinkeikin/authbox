@@ -41,4 +41,6 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 
 配置 `AUTHBOX_NAS_SSH_TARGET` 和 `AUTHBOX_NAS_SSH_KEY` 后运行 `npm run inspect:nas`。只读脚本检查操作系统、Python HTTPS 和 Docker，不安装软件。SSH 保留严格主机密钥校验，私钥不进入程序输出。
 
-真实备份拉取另行验证；有 Python 和 TLS 库不等于备份已经成功。Cloudflare 令牌配置见 [测试环境说明](../../docs/cloudflare-feasibility-setup.md)。
+运行 `npm run verify:nas`，在同一 NAS 环境通过 HTTPS 下载公开固定样本，校验 SHA256，再验证错误摘要不替换旧文件、HTTP 被拒绝和临时文件清理。脚本从标准输入执行，不在 NAS 上安装服务或创建定时任务。
+
+该样本拉取不包含 Cloudflare 备份鉴权和加密恢复；两者另行验证。Cloudflare 令牌配置见 [测试环境说明](../../docs/cloudflare-feasibility-setup.md)。
