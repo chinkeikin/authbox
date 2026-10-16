@@ -140,7 +140,7 @@ Google 登录只替代本次平台密码输入，不自动解密保险库，也�
 
 建议登录密码在服务端使用 Argon2id 和成熟库，候选参数为内存 32 MiB、迭代 3、并行度 1，最终参数由部署环境基准测试决定，并满足当期安全基线。客户端保险库 KDF 参数独立，不混用。慢哈希与独立盐的依据见 [OWASP 密码存储指南](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)。
 
-Workers 免费档单次请求 CPU 限额为 10ms，且当前 `node:crypto` 不提供原生 Argon2。Argon2id WASM 的 CPU、内存、并发及打包兼容必须在真实 Worker 验证，不能仅在本地 Node 验证。若不能满足，需要采用付费 Workers 或另行确定认证运行环境，不能为免费额度降低密码哈希强度，也不能擅自改成客户端哈希加快速服务端哈希的自创协议。见 [Workers 限制](https://developers.cloudflare.com/workers/platform/limits/) 和 [crypto 兼容范围](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)。
+普通 Workers 免费档单次请求 CPU 限额为 10ms，且当前 `node:crypto` 不提供原生 Argon2。用户已决定优先验证免费 Workers 加 SQLite Durable Objects，由对象承担同强度 Argon2id 和账号存储；DO 有独立执行限制，不能以普通 Worker 的结果替代其验证。真实 CPU、内存、并发及打包兼容必须实际执行，不能仅在本地 Node 验证。该方案不通过后再考虑 Firebase，暂不考虑 Supabase；保持免费、自定义用户名密码，不为免费额度降低密码哈希强度，也不擅自改成客户端哈希加快速服务端哈希的自创协议。见 [DO 验证记录](feasibility/durable-object.md)、[DO 限制](https://developers.cloudflare.com/durable-objects/platform/limits/) 和 [crypto 兼容范围](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)。
 
 ## 6 加密模型
 

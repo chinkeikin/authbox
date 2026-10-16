@@ -1,4 +1,5 @@
 export const fixturePassword = 'AuthBox public feasibility fixture';
+export const durableMarker = 'durable-sqlite-v1';
 export const fixtureSalt = Uint8Array.from({ length: 16 }, (_, index) => index + 1);
 export const serverProfile = Object.freeze({ m: 32768, t: 3, p: 1, dkLen: 32 });
 export const vaultProfile = Object.freeze({ m: 65536, t: 3, p: 1, dkLen: 32 });
