@@ -31,6 +31,12 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 
 脚本通过 javac 和 D8 编译临时 JCA 探针，只向明确选择的设备推送独立 dex 文件，经 app_process 运行后删除并核对不存在。它验证 AES 256 GCM 的加解密、UTF8、认证标签及篡改拒绝，不验证应用生命周期、Keystore 或手机 Argon2id。生成物和报告保存在 `.cache/feasibility/android/`。
 
+## 浏览器互通和派生
+
+安装 Google Chrome 后运行 `npm run verify:browser`。脚本使用 Playwright 创建隔离的 headless Chrome，启动仅绑定 127.0.0.1 的临时服务，在限制脚本来源且只允许 WASM 编译的 CSP 下运行，结束后关闭浏览器和服务。
+
+使用与 Android 相同的固定公开向量验证双向 AES GCM 和五类篡改拒绝，并检查 Argon2id 标准向量及 64 MiB、3 次迭代、并行度 1 的浏览器候选参数。它不加载日常 Chrome 资料，也不代表 MV3 安装、权限、存储及锁定行为已通过。结果写入 `.cache/feasibility/browser/report.json`。
+
 ## NAS 环境
 
 配置 `AUTHBOX_NAS_SSH_TARGET` 和 `AUTHBOX_NAS_SSH_KEY` 后运行 `npm run inspect:nas`。只读脚本检查操作系统、Python HTTPS 和 Docker，不安装软件。SSH 保留严格主机密钥校验，私钥不进入程序输出。

@@ -28,3 +28,12 @@ export function wasmOptions(profile) {
     outputType: 'hex',
   };
 }
+
+export function makeInteropFixture() {
+  return {
+    key: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+    nonce: Uint8Array.from({ length: 12 }, (_, index) => index + 40),
+    aad: new TextEncoder().encode('AuthBox feasibility aad v1'),
+    plaintext: new TextEncoder().encode('公开测试数据 Android 与浏览器互通'),
+  };
+}

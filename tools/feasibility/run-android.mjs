@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { makeInteropFixture } from './fixtures.mjs';
 
 const serial = process.env.AUTHBOX_ANDROID_SERIAL;
 const sdk = process.env.ANDROID_HOME ?? process.env.AUTHBOX_ANDROID_SDK;
@@ -35,10 +36,11 @@ run(executable('java'), [
   '--min-api', '26', '--output', outputDirectory, path.join(outputDirectory, 'AuthBoxCryptoProbe.class'),
 ]);
 
-const key = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 1));
-const nonce = Buffer.from(Array.from({ length: 12 }, (_, index) => index + 40));
-const aad = Buffer.from('AuthBox feasibility aad v1');
-const plaintext = Buffer.from('公开测试数据 Android 与浏览器互通');
+const fixture = makeInteropFixture();
+const key = Buffer.from(fixture.key);
+const nonce = Buffer.from(fixture.nonce);
+const aad = Buffer.from(fixture.aad);
+const plaintext = Buffer.from(fixture.plaintext);
 const nodeKey = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt', 'decrypt']);
 const nodeCiphertext = Buffer.from(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, nodeKey, plaintext));
 const remotePath = `/data/local/tmp/authbox-feasibility-${randomUUID()}.dex`;
