@@ -283,6 +283,9 @@ try {
   }
   const measurementsEnd = new Date().toISOString();
   report.measurementWindow = { start: measurementsStart, end: measurementsEnd };
+  const analyticsStart = new Date(Math.floor(Date.parse(measurementsStart) / 1000) * 1000).toISOString();
+  const analyticsEnd = new Date(Math.ceil(Date.parse(measurementsEnd) / 1000) * 1000).toISOString();
+  report.analyticsWindow = { start: analyticsStart, end: analyticsEnd };
 
   const query = `query Metrics($account: string, $start: string, $end: string, $name: string) {
     viewer { accounts(filter: {accountTag: $account}) {
@@ -299,7 +302,7 @@ try {
     }
     try {
       const analytics = (await api('/graphql', { method: 'POST', body: JSON.stringify({
-        query, variables: { account: accountId, start: measurementsStart, end: measurementsEnd, name },
+        query, variables: { account: accountId, start: analyticsStart, end: analyticsEnd, name },
       }) })).data;
       report.analytics = analytics.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? [];
       report.analyticsCpuFieldDescriptions = analytics.data?.__type?.fields?.filter((field) => ['cpuTimeP50', 'cpuTimeP99'].includes(field.name));

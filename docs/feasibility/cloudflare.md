@@ -27,6 +27,24 @@
 
 复现命令为 `npm run verify:cloudflare:domain-route`，在本机设置 `AUTHBOX_CF_TEST_ZONE` 和 `AUTHBOX_CF_TEST_HOST`；正式 KDF 命令为 `npm run verify:cloudflare:domain`。实际域名、Zone 标识及证书标识不写入公开仓库。
 
+### 自有域名正式 KDF
+
+同一候选参数在可用的自有域名正式入口执行，鉴权、方法、未知路由及 RFC 向量先通过，再发出 3 次顺序请求和 2 个并发请求：
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 5 次候选请求 | 2 次 200 且哈希一致，3 次 HTTP 503 / 1102 |
+| 2 次完成请求的实时 CPU | 2000 ms、604 ms |
+| 3 次失败请求的实时结果 | 均为 `outcome=exceededCpu`，异常为 `Worker exceeded CPU time limit.` |
+| 失败时记录的 CPU | 63 ms、10 ms、10 ms |
+| hash-wasm 动态加载 | 422，仍禁止 WebAssembly.compile |
+| workers.dev 同 Worker 对照 | 启用状态已确认，访问返回 500 / 1101 |
+| 资源清理 | 本次域名绑定和 Worker 均删除并延迟复核 |
+
+此处可以确认 CPU 超限，不再只凭 1102 推测 CPU 或内存。免费档标称每请求 10 ms CPU，偶尔完成长请求不代表有可依赖的额度。本次纯 JavaScript 候选不满足免费档采用条件；参数保持 32 MiB、3 次迭代、并行度 1。
+
+CPU 数值来自 Cloudflare 实时执行记录，不是外部请求墙钟。Analytics 查询窗口已扩展到覆盖整秒，本轮 GraphQL 仍未返回聚合行，不以空数据推断没有执行。完整本机记录为 `.cache/feasibility/cloudflare/custom-domain-report.json`。
+
 `npm run verify:cloudflare:route` 使用全新临时名称复现最小路由检查。本地产物先在 workerd 验证到期、HTTP 方法和路由；云端没有就绪时以非零状态退出，报告记录失败。测试结束按每次独立标签确认归属，再删除 Worker，延迟多次复核控制面状态。
 
 ## 远程预览 KDF
@@ -49,8 +67,8 @@
 
 ## 下一步
 
-自有域名的最小正式入口已通过，下一步沿此入口测 KDF 的真实 CPU、内存和并发。后续可评估静态导入预编译 WASM 或其他认证运行环境，但必须实际验证；不替换全局 WebAssembly、不为运行额度降低密码哈希强度，也不开通未经用户决定的付费方案。
+自有域名正式执行及 CPU 归因已验证，纯 JavaScript 候选未通过免费档条件。下一步评估静态导入预编译 WASM 或其他认证运行环境；不替换全局 WebAssembly、不为运行额度降低密码哈希强度，也不开通未经用户决定的付费方案。
 
 当前官方文档仍将 `node:crypto` 的 argon2 和 argon2Sync 列为不支持，不能以 Node.js 本机支持推断 Workers 可用。
 
-依据：[Workers 错误与异常](https://developers.cloudflare.com/workers/observability/errors/)、[GraphQL Workers 指标](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/)、[Node crypto 兼容范围](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[静态 WASM 导入](https://developers.cloudflare.com/workers/runtime-apis/webassembly/javascript/)。
+依据：[Workers 错误与异常](https://developers.cloudflare.com/workers/observability/errors/)、[Workers 定价和 CPU 限额](https://developers.cloudflare.com/workers/platform/pricing/)、[GraphQL Workers 指标](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/)、[Node crypto 兼容范围](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[静态 WASM 导入](https://developers.cloudflare.com/workers/runtime-apis/webassembly/javascript/)。
