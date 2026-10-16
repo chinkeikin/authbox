@@ -8,6 +8,9 @@
     "node": ">=24.13.0"
   },
   "scripts": {
+    "verify:android:app:fixtures": "node tools/android/prepare-fixtures.mjs",
+    "verify:android:app:protocol": "node tools/android/check-protocol.mjs",
+    "verify:android:app:cloud": "node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android",
     "verify:worker": "node tools/feasibility/run-worker.mjs",
     "verify:worker:static-wasm": "node tools/feasibility/run-static-wasm.mjs",
     "verify:worker:durable": "node tools/feasibility/run-durable-local.mjs",

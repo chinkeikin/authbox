@@ -40,15 +40,16 @@ export async function removeArtifacts(names) {
   }
 }
 export async function buildTests() {
-  const args = ['-p', 'apps/android', ':app:assembleDebugAndroidTest', '--console=plain', '--max-workers=2'];
+  const args = ['-p', 'apps/android', ':app:assembleDebug', ':app:assembleDebugAndroidTest', '--console=plain', '--max-workers=2'];
   if (process.env.HTTPS_PROXY) {
     const proxy = new URL(process.env.HTTPS_PROXY);
     assert.ok(!proxy.username && !proxy.password, 'Authenticated proxy must be configured outside this script');
+    assert.match(proxy.hostname, /^[a-z0-9.:-]+$/i);
     args.push(`-Dhttps.proxyHost=${proxy.hostname}`, `-Dhttps.proxyPort=${proxy.port || 80}`);
   }
   const command = resolve('apps/android', process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
   const result = process.platform === 'win32'
-    ? await execute('cmd.exe', ['/d', '/s', '/c', `""${command}" ${args.join(' ')}"`], { timeout: 300000, maxBuffer: 4 * 1024 * 1024 })
+    ? await execute('cmd.exe', ['/d', '/s', '/c', `""${command}" ${args.join(' ')}"`], { windowsVerbatimArguments: true, timeout: 300000, maxBuffer: 4 * 1024 * 1024 })
     : await execute(command, args, { timeout: 300000, maxBuffer: 4 * 1024 * 1024 });
   assert.match(result.stdout, /BUILD SUCCESSFUL/);
   console.log('Android instrumentation APK build passed');

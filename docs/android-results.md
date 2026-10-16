@@ -17,3 +17,16 @@
 - Android 修改分组生成 revision 2；Node 独立恢复并验证业务引用，未修改账号的密文与 revision 保持原样。Android 自行生成的新保险库也由 Node 用恢复密钥成功解密。
 - 缺少实体但重算外层摘要、AAD 改动、错误密码、低强度 KDF、未知版本、缺失分组引用、重复 JSON 字段、错误 Unicode 均被拒绝。JSON 编码额外核对中文、emoji、组合字符、U+2028/U+2029 与控制字符的跨端一致性。
 - 验证命令：`node tools/android/prepare-fixtures.mjs`，构建并安装测试 APK 后设置 `AUTHBOX_ANDROID_SERIAL` 和 `ANDROID_HOME`，运行 `node tools/android/check-protocol.mjs`。合成明文与结果保存在忽略的 build/.cache 路径，测试输出文件核对后从手机删除。
+
+## Workers Free + SQLite Durable Objects 联调
+
+- PHB110 实际 APK 通过 HTTPS 连接临时自定义域名服务。`CloudTest` 分注册同步、进程重建、冲突三轮运行，每轮 2 项测试均通过，另有 1 项合成数据与 Keystore 别名清理测试通过。
+- Android 自行创建保险库、恢复密钥和 8 个账号恢复码；未确认保存恢复材料时不能提交注册。邀请码注册得到首台 manager，设备签名由真实 AndroidKeyStore 私钥完成，服务器成功验证协议 P1363 签名。
+- 手机上传 4 类实体的 revision 2；普通登录仍为 reader，客户端与服务端分别拒绝写入。刷新会话轮换令牌并加密保存。错误密码被拒绝，已授权设备用原私钥和正确密码重新登录恢复 manager。
+- 本地收藏修改先加密持久化为待上传操作。强制停止后，新进程默认锁定，解锁并提交原操作到 revision 3；Node 独立账号登录下载同一密文，并用 Android 生成的恢复密钥验证全部业务数据。
+- Node 生成一个并发 revision 4，由 Android 签名提交；原本基于 revision 3 的修改得到 409，仍保留待上传内容和本地分组编辑，下载不能覆盖它。此处验证过期版本冲突；冲突合并界面未实现。
+- 返回的签名挑战若替换 origin、挑战 ID、账号、设备、会话、操作、请求摘要或有效期，客户端拒绝签名。
+- 开始与结束均确认 Workers 付费订阅数为 0；SQLite namespace、临时 Worker 和域名绑定删除已核对。托管证书属于独立生命周期，没有宣称证书资源已删除。没有使用 D1、R2、付费 SDK 或降低 KDF 参数。
+- 第一轮 Windows 命令封装错误发生在测试安装前，临时云资源已清理；修复封装并独立验证后，重新创建环境完成上述测试。清理异常现在不会覆盖原始测试失败原因。
+- 运行：设置 `JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、`AUTHBOX_CF_TEST_ZONE`、`AUTHBOX_CF_TEST_HOST`，执行 `node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android`。测试 gate 与配置只在独立测试 APK 中，生产 API bundle 不含测试接口。原始报告在忽略的 `.cache/api/cloud/android-service-report.json`。
+- Android Lint 通过；已有回归的 46 项协议、2 项 HTTP、157 项本地接口与 9 项正式入口检查全部通过。

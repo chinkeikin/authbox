@@ -9,6 +9,7 @@ import { runApiSuite, apiFixturePassword } from '../../services/api/test/suite.m
 import { serverProfile } from '../feasibility/fixtures.mjs';
 import { sha256, utf8 } from '../../packages/protocol/src/encoding.mjs';
 const durableMarker = 'api-v1';
+const androidMode = process.argv.includes('--android');
 const invites = Array.from({ length: 2 }, () => randomBytes(32).toString('base64url'));
 const inviteHashes = await Promise.all(invites.map((invite) => sha256(utf8(invite))));
 
@@ -20,7 +21,7 @@ assert.match(account, /^[a-f0-9]{32}$/i);
 assert.ok(token.length > 20 && !token.includes('replace-with'));
 assert.ok(/^[a-z0-9.-]+$/.test(zoneName) && zoneName.includes('.'));
 assert.ok(/^[a-z0-9.-]+$/.test(hostname) && hostname.endsWith(`.${zoneName}`));
-const output = '.cache/api/cloud/service-report.json';
+const output = androidMode ? '.cache/api/cloud/android-service-report.json' : '.cache/api/cloud/service-report.json';
 const cleanupOnly = process.argv.includes('--cleanup');
 const previous = cleanupOnly ? JSON.parse(await readFile(output, 'utf8')) : undefined;
 const name = previous?.name ?? `authbox-api-check-${randomUUID().slice(0, 8)}`;
@@ -210,6 +211,16 @@ async function verify() {
     console.log(JSON.stringify({ readinessAttempt: attempt + 1, status, reachedProbe: reached }));
     assert.ok(attempt < 60, 'Custom domain failed to become consistently ready');
     await delay(2000);
+  }
+  if (androidMode) {
+    const { runAndroidCloud } = await import('../android/run-cloud.mjs');
+    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0] });
+    report.android = result;
+    report.checks = result.checks;
+    report.runtimeChecksPassed = true;
+    report.accountAfter = await freeAccount();
+    report.freeTierRuntimeVerified = true;
+    return;
   }
   const hashLabels = ['register-success', 'reader-login', 'candidate-login', 'device-login-manager', 'wrong-password', 'unknown-user', 'other-register', 'password-prepare', 'recover-rollback', 'reconnect-after-idle'];
   const suite = await runApiSuite((url, options) => {
