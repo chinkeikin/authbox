@@ -1,0 +1,12 @@
+AuthBox Android third-party software
+
+AndroidX Activity, Compose, Lifecycle and AndroidX Test: The Android Open Source Project,
+Apache License 2.0. https://android.googlesource.com/platform/frameworks/support/
+Kotlin and kotlinx.coroutines: JetBrains s.r.o. and contributors, Apache License 2.0.
+https://github.com/JetBrains/kotlin ; https://github.com/Kotlin/kotlinx.coroutines
+Bouncy Castle bcprov-jdk15to18 1.86: The Legion of the Bouncy Castle Inc., Bouncy Castle License.
+https://www.bouncycastle.org/licence.html
+
+Full license texts are included in assets/licenses. Maven artifacts retain their META-INF notices.
+Gradle Wrapper and Android Gradle Plugin are build tools under Apache License 2.0.
+JUnit (test APK only): Eclipse Public License 1.0, https://junit.org/junit4/license.html
