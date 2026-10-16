@@ -25,6 +25,10 @@
 
 `npm run verify:worker:static-wasm` 先在本地检查静态导入与跨实现输出；`npm run verify:cloudflare:domain-static-wasm` 使用同一临时域名流程检查预编译 WASM 的正式执行。每轮 Worker 使用全新名称，入口连续就绪后才执行候选计算。
 
+`npm run verify:cloudflare:durable` 验证免费 SQLite Durable Objects 密码存储及校验，要求账号没有 Workers 付费订阅。沿用现有令牌即可创建 SQLite 类迁移、查询命名空间及删除本轮测试类，不增加账单权限。程序结束时复核测试命名空间和 Worker 已移除；失败遗留时，在同一配置下运行 `npm run verify:cloudflare:durable -- --cleanup`，按本地报告的独立标签核对归属再重试清理。
+
+该命令要求 Node 24.13.0 或以上，启用 Node 官方 `--use-env-proxy` 来使用本机已有代理环境变量，不修改系统代理。域名就绪检查有 120 秒总截止时间；直接连接超时不等同于密码哈希失败。
+
 程序使用 Workers 自定义域名接口自动配置目标记录与证书。要求令牌能读取对应 Zone，绑定权限由 Workers Scripts Write 提供；直接 DNS 读取权限不作为前提。先取得服务端变更计划，无冲突、无其他更新删除且只新增指定子域名时才执行；覆盖已有 DNS、已有源站及绑定范围的选项全部关闭。
 
 结束后只删除本次归属的域名绑定和 Worker，并保存复核结果。Cloudflare 不保证随绑定删除托管证书，证书标识仅保存本机，不能把 Worker 已删除等同于证书已删除。依据：[自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。

@@ -1,0 +1,120 @@
+{
+  "generatedAt": "2026-10-16T07:21:40.816Z",
+  "environment": "Cloudflare Workers Free with a SQLite-backed Durable Object",
+  "scope": "Synthetic password-storage feasibility; production sessions, recovery, device authorization and capacity acceptance remain unimplemented",
+  "profile": {
+    "algorithm": "Argon2id",
+    "m": 32768,
+    "t": 3,
+    "p": 1,
+    "dkLen": 32
+  },
+  "library": {
+    "name": "hash-wasm",
+    "version": "4.12.0",
+    "sourceSha256": "2d6333a619d7f64adc313a38732425fc0c6f0baaa36c1419cf05672bcd89340d"
+  },
+  "checks": {
+    "standardVector": true,
+    "customCredentials": true,
+    "unicodePassword": true,
+    "randomSaltPerAccount": true,
+    "nodeNativeHashCrossCheck": true,
+    "wrongPasswordRejected": true,
+    "unknownUserRejected": true,
+    "duplicateRejected": true,
+    "fourConcurrentRequests": true,
+    "maxActiveHashes": 1,
+    "sqlitePersistenceAfterRuntimeReset": true,
+    "fixtureDataCleared": true
+  },
+  "requestStatus": {
+    "unauthorized": 401,
+    "invalid-method": 405,
+    "unknown-route": 404,
+    "invalid-json": 400,
+    "oversized-input": 400,
+    "standard-vector": 200,
+    "register-1": 201,
+    "register-2": 201,
+    "register-3": 201,
+    "duplicate-register": 409,
+    "sequential-1": 200,
+    "sequential-2": 200,
+    "sequential-3": 200,
+    "wrong-password": 401,
+    "unknown-user": 401,
+    "unicode-password": 200,
+    "concurrent-2": 200,
+    "concurrent-3": 401,
+    "concurrent-4": 200,
+    "concurrent-1": 200,
+    "inspect-storage": 200,
+    "reset-runtime": 502,
+    "inspect-after-reset": 200,
+    "login-after-reset": 200,
+    "clear-fixtures": 200,
+    "inspect-after-clear": 200
+  },
+  "cpuSamples": [
+    {
+      "label": "register-1",
+      "cpuTimeMs": 194,
+      "outcome": "ok"
+    },
+    {
+      "label": "register-2",
+      "cpuTimeMs": 182,
+      "outcome": "ok"
+    },
+    {
+      "label": "register-3",
+      "cpuTimeMs": 165,
+      "outcome": "ok"
+    },
+    {
+      "label": "sequential-1",
+      "cpuTimeMs": 280,
+      "outcome": "ok"
+    },
+    {
+      "label": "sequential-3",
+      "cpuTimeMs": 167,
+      "outcome": "ok"
+    },
+    {
+      "label": "unicode-password",
+      "cpuTimeMs": 171,
+      "outcome": "ok"
+    },
+    {
+      "label": "login-after-reset",
+      "cpuTimeMs": 172,
+      "outcome": "ok"
+    }
+  ],
+  "cpuCoverage": {
+    "expectedCount": 14,
+    "observedCount": 7,
+    "complete": false,
+    "missingLabels": [
+      "sequential-2",
+      "wrong-password",
+      "unknown-user",
+      "concurrent-1",
+      "concurrent-2",
+      "concurrent-3",
+      "concurrent-4"
+    ]
+  },
+  "paidWorkersSubscriptions": {
+    "before": 0,
+    "after": 0
+  },
+  "cleanup": {
+    "workerRemoved": true,
+    "namespaceRemoved": true,
+    "domainBindingRemoved": true,
+    "managedCertificateDeletionVerified": false
+  }
+}

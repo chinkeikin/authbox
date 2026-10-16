@@ -13,9 +13,9 @@
 | NAS 环境 | 只读检查通过 | Linux x86_64、Python 3.12.3、OpenSSL 3.0.13、Docker 可用 |
 | NAS 主动 HTTPS 拉取 | 真实 NAS 样本拉取通过 | [NAS 结果](nas.md)，Cloudflare 鉴权备份及加密恢复待验证 |
 | Cloudflare 正式入口 | 自有域名最小探针通过 | [电脑和 NAS HTTPS 对照](cloudflare.md)，workers.dev 内部异常仍未定位 |
-| Cloudflare 正式 KDF | 当前不按免费档采用 | [纯 JS 明确超限，静态 WASM 输出正确但观察到高 CPU](cloudflare.md)，部署预算待决定 |
+| 普通 Worker 内的 KDF | 不采用该执行位置 | [纯 JS 明确超限，静态 WASM 仍有高 CPU](cloudflare.md)，改由 SQLite DO 承担计算 |
 | 静态 WASM 加载 | 本地及自有域名通过兼容与输出校验 | 5 类本地交叉校验、正式两轮各 5 次正确输出；CPU 逐请求标识关联未通过 |
-| 免费 SQLite Durable Objects | 本地通过，云端待验证 | [自定义密码、26 次请求、SQLite 重启持久化](durable-object.md)；保持现有 Argon2id 参数 |
+| 免费 SQLite Durable Objects | 真实免费账号可行性通过 | [26 次请求、SQLite 重启持久化、7 条 CPU 样本 165–280 ms](durable-object.md)；保持原参数，CPU 覆盖 7/14 |
 | Cloudflare 远程预览 KDF | 兼容性已执行，可靠性未通过 | [5 次请求有 2 次 1102](cloudflare.md)，不能据此认定免费档可用 |
 
 复现命令与环境变量见 [探针说明](../../tools/feasibility/README.md)。本地生成物和详细报告由 `.gitignore` 排除；公开记录不含设备序列号、内网地址或凭据。

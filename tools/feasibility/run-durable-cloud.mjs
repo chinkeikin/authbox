@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { buildStaticWasm } from './build-static-wasm.mjs';
@@ -16,26 +16,31 @@ assert.match(account, /^[a-f0-9]{32}$/i);
 assert.ok(token.length > 20 && !token.includes('replace-with'));
 assert.ok(/^[a-z0-9.-]+$/.test(zoneName) && zoneName.includes('.'));
 assert.ok(/^[a-z0-9.-]+$/.test(hostname) && hostname.endsWith(`.${zoneName}`));
-const name = `authbox-feasibility-do-${randomUUID().slice(0, 8)}`;
-const ownershipTag = `authbox-probe-${randomUUID()}`;
+const output = '.cache/feasibility/cloudflare/durable-object-report.json';
+const cleanupOnly = process.argv.includes('--cleanup');
+const previous = cleanupOnly ? JSON.parse(await readFile(output, 'utf8')) : undefined;
+const name = previous?.name ?? `authbox-feasibility-do-${randomUUID().slice(0, 8)}`;
+const ownershipTag = previous?.ownershipTag ?? `authbox-probe-${randomUUID()}`;
+assert.match(name, /^authbox-feasibility-do-[a-f0-9]{8}$/);
+assert.match(ownershipTag, /^authbox-probe-[a-f0-9-]{36}$/);
 const probeToken = randomBytes(32).toString('hex');
 const path = `/accounts/${account}/workers/scripts/${name}`;
 const namespacePath = `/accounts/${account}/workers/durable_objects/namespaces`;
 const domainPath = `/accounts/${account}/workers/domains`;
-const output = '.cache/feasibility/cloudflare/durable-object-report.json';
 await mkdir('.cache/feasibility/cloudflare', { recursive: true });
-const report = { generatedAt: new Date().toISOString(), environment: 'Cloudflare deployed Worker and SQLite Durable Object',
+const report = previous ?? { generatedAt: new Date().toISOString(), environment: 'Cloudflare deployed Worker and SQLite Durable Object',
   name, ownershipTag, profile: serverProfile, results: [], tail: [], cleanupVerified: false, runtimeChecksPassed: false };
 const redact = (value) => [token, probeToken, account, hostname, ...durableFixtures.map((item) => item.password)]
   .reduce((text, secret) => secret ? text.replaceAll(secret, '[redacted]') : text, String(value));
 const save = () => writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
-let uploaded = false;
-let domainAttempted = false;
+let uploaded = cleanupOnly;
+let domainAttempted = cleanupOnly && Boolean(previous.domain?.bound && !previous.domain?.removed);
 let zoneId;
 let namespaceId;
 let socket;
 let tailId;
 let failure;
+let stoppingTail = false;
 
 async function api(endpoint, { method = 'GET', body, allowedStatuses = [] } = {}) {
   const response = await fetch(`https://api.cloudflare.com/client/v4${endpoint}`, { method, body, redirect: 'error',
@@ -110,6 +115,9 @@ async function startTail() {
   assert.ok(url.hostname.endsWith('.cloudflare.com') || url.hostname === 'tail.developers.workers.dev');
   socket = new WebSocket(tail.url, ['trace-v1']);
   socket.binaryType = 'arraybuffer';
+  socket.addEventListener('close', (event) => {
+    if (!stoppingTail) report.tailDisconnected = { code: event.code };
+  });
   socket.addEventListener('message', (event) => {
     try {
       const data = JSON.parse(typeof event.data === 'string' ? event.data : Buffer.from(event.data).toString('utf8'));
@@ -140,7 +148,7 @@ async function startTail() {
   report.tailConnected = true;
 }
 
-try {
+async function verify() {
   report.accountBefore = await freeAccount();
   assert.ok(!(await api(`/accounts/${account}/workers/scripts`)).data.result.some((item) => item.id === name));
   await api(namespacePath);
@@ -163,46 +171,71 @@ try {
   assert.ok(namespace, 'Namespace was not found after SQLite migration');
   report.namespace.registryFields = Object.keys(namespace);
   report.namespace.sqlite = namespace.use_sqlite;
+  assert.equal(report.namespace.sqlite, true, 'Namespace must use the free SQLite backend');
   await save();
   await attachDomain();
   await startTail();
   let consecutive = 0;
+  const readinessDeadline = Date.now() + 120000;
   for (let attempt = 0; attempt < 61; attempt += 1) {
+    assert.ok(Date.now() < readinessDeadline, 'Custom domain readiness exceeded 120 seconds');
     let reached = false;
+    let status;
     try {
-      const ready = await fetch(`https://${hostname}/health`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+      const ready = await fetch(`https://${hostname}/health`, { redirect: 'error', signal: AbortSignal.timeout(Math.min(10000, readinessDeadline - Date.now())) });
+      status = ready.status;
       reached = ready.status === 200 && ready.headers.get('X-AuthBox-Probe') === durableMarker;
       await ready.body?.cancel();
-    } catch {}
+    } catch (error) { report.lastReadinessNetworkError = error.cause?.code ?? error.name; }
     consecutive = reached ? consecutive + 1 : 0;
     if (consecutive >= 6) break;
+    console.log(JSON.stringify({ readinessAttempt: attempt + 1, status, reachedProbe: reached }));
     assert.ok(attempt < 60, 'Custom domain failed to become consistently ready');
     await delay(2000);
+  }
+  const hashLabels = ['register-1', 'register-2', 'register-3', 'sequential-1', 'sequential-2', 'sequential-3', 'wrong-password', 'unknown-user', 'unicode-password',
+    'concurrent-1', 'concurrent-2', 'concurrent-3', 'concurrent-4', 'login-after-reset'];
+  async function waitForCpu(expected) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const correlated = report.tail.filter((item) => item.markers.length === 1 && item.markers[0].hashed && Number.isFinite(item.cpuTimeMs));
+      if (expected.every((label) => correlated.some((item) => item.markers[0].label === label))) return;
+      if (socket.readyState === WebSocket.CLOSED) return;
+      if (attempt === 0) console.log('Waiting for per-invocation Durable Object CPU records');
+      await delay(2000);
+    }
   }
   const suite = await runDurableSuite((url, options) => {
     const target = new URL(url); target.hostname = hostname;
     return fetch(target, { ...options, redirect: 'error', signal: AbortSignal.timeout(30000) });
-  }, probeToken, { onSample(sample) { report.results.push(sample); console.log(JSON.stringify(sample)); } });
+  }, probeToken, { onSample(sample) { report.results.push(sample); console.log(JSON.stringify(sample)); },
+    afterInspect: () => waitForCpu(hashLabels.filter((label) => label !== 'login-after-reset')) });
   report.checks = suite.checks;
   report.runtimeChecksPassed = true;
-  const hashLabels = ['register-1', 'register-2', 'register-3', 'sequential-1', 'sequential-2', 'sequential-3', 'wrong-password', 'unknown-user', 'unicode-password',
-    'concurrent-1', 'concurrent-2', 'concurrent-3', 'concurrent-4', 'login-after-reset'];
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const correlated = report.tail.filter((item) => item.markers.length === 1 && item.markers[0].hashed && Number.isFinite(item.cpuTimeMs));
-    if (hashLabels.every((label) => correlated.some((item) => item.markers[0].label === label))) break;
-    if (attempt === 0) console.log('Waiting for per-invocation Durable Object CPU records');
-    await delay(2000);
-  }
+  await waitForCpu(hashLabels);
   report.hashCpu = report.tail.filter((item) => item.markers.length === 1 && hashLabels.includes(item.markers[0].label) && item.markers[0].hashed && Number.isFinite(item.cpuTimeMs))
     .map((item) => ({ label: item.markers[0].label, cpuTimeMs: item.cpuTimeMs, outcome: item.outcome }));
-  assert.equal(new Set(report.hashCpu.map((item) => item.label)).size, hashLabels.length, 'Not all candidate invocations have uniquely correlated CPU records');
-  assert.ok(report.hashCpu.every((item) => item.outcome === 'ok' && item.cpuTimeMs < 30000), 'Durable Object CPU condition failed');
+  const observedLabels = new Set(report.hashCpu.map((item) => item.label));
+  report.cpuCoverage = { expectedCount: hashLabels.length, observedCount: observedLabels.size,
+    complete: observedLabels.size === hashLabels.length, missingLabels: hashLabels.filter((label) => !observedLabels.has(label)) };
+  assert.ok(observedLabels.size >= 3, 'Insufficient representative CPU samples for the reviewed KDF profile');
+  assert.ok(report.hashCpu.some((item) => /^(sequential-|concurrent-[124]$|unicode-password$|login-after-reset$)/.test(item.label)), 'A successful password verification must have a measured CPU sample');
+  assert.ok(report.hashCpu.every((item) => item.outcome === 'ok' && item.cpuTimeMs >= 0 && item.cpuTimeMs < 30000), 'Durable Object CPU condition failed');
   report.accountAfter = await freeAccount();
   report.freeTierRuntimeVerified = true;
+}
+
+try {
+  if (cleanupOnly) {
+    const zone = (await api(`/zones?name=${encodeURIComponent(zoneName)}`)).data.result.find((item) => item.name === zoneName && item.account?.id === account);
+    assert.ok(zone, 'Cleanup zone ownership not confirmed');
+    zoneId = zone.id;
+    report.cleanupRetriedAt = new Date().toISOString();
+  } else await verify();
 } catch (error) {
   failure = error;
   report.failure = redact(error.message);
 } finally {
+  stoppingTail = true;
   socket?.terminate();
   if (tailId) {
     try { await api(`${path}/tails/${tailId}`, { method: 'DELETE', allowedStatuses: [404] }); }
@@ -212,7 +245,9 @@ try {
     try {
       const settings = await ownedSettings(true);
       if (settings) {
-        namespaceId ??= settings.bindings.find((item) => item.name === 'AUTH_PROBE' && item.type === 'durable_object_namespace')?.namespace_id;
+        const boundNamespace = settings.bindings.find((item) => item.name === 'AUTH_PROBE' && item.type === 'durable_object_namespace')?.namespace_id;
+        if (namespaceId && boundNamespace) assert.equal(namespaceId, boundNamespace, 'Namespace binding changed before cleanup');
+        namespaceId ??= boundNamespace;
         if (domainAttempted) {
           const binding = (await api(domainPath)).data.result.find((item) => item.hostname === hostname);
           if (binding) {

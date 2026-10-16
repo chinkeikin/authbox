@@ -281,7 +281,8 @@ NAS 下载时先写临时文件，校验完整长度、格式、目标保险库�
 | Android 手机 | Kotlin、Jetpack Compose、Room、WorkManager、Android Keystore | 完整管理、加解密、离线队列、系统解锁 |
 | Chrome 扩展 | TypeScript、React、Manifest V3 | 只读取码、加密缓存、授权登录、自动锁定 |
 | 服务端 | TypeScript、Cloudflare Workers、轻量路由及 schema 校验库 | 认证、设备权限、密文同步、版本、备份 API |
-| 数据库 | Cloudflare D1 | 用户、身份绑定、设备、会话、密文实体、历史、恢复码哈希、幂等记录 |
+| 密码认证计算 | SQLite Durable Objects、同强度 Argon2id | 保存密码校验记录并执行慢哈希，避免在普通 Worker 内执行 |
+| 数据库 | Cloudflare D1 与认证 DO 的 SQLite | 身份、设备、会话、密文实体、历史及幂等记录；正式协议阶段固定唯一数据来源与事务边界 |
 | 备份对象 | Cloudflare R2 Standard，私有桶 | 不可变密文快照及清单 |
 | NAS 程序 | Python 或 Docker 化命令行程序 | 定时主动下载、校验、原子落盘、保留和状态输出 |
 | Google 接入 | 官方身份流程及成熟令牌验证库 | 绑定及快捷登录，不承载保险库恢复 |
@@ -331,12 +332,12 @@ R2 对象不公开访问。Worker 通过绑定读取并鉴权后提供下载；�
 
 | 产品 | 当前公开额度或费用 | 方案含义 |
 | --- | --- | --- |
-| Workers Free | 每日 10 万请求，每次请求 10ms CPU | 同步量通常较小；密码哈希和真实认证开销可能无法满足免费档 |
-| Workers Paid | 官方列示基础订阅 5 美元每月，包含一定请求和 CPU 用量 | 为自建密码认证预留的候选预算，不承诺所有额外用量为零 |
+| Workers Free | 每日 10 万请求，每次请求 10ms CPU | 普通入口负责鉴权转发和同步，不直接执行 Argon2id |
+| SQLite Durable Objects Free | 每日 10 万请求、13,000 GB-s 计算时长 | 作为同强度密码认证的免费运行候选，实际验证结果见可行性记录 |
 | D1 Free | 每日读取 500 万行、写入 10 万行，总存储 5GB | 按行扫描和写入计量，索引、历史保留及用户数量影响消耗 |
 | R2 Standard | 每月 10GB month、100 万次 A 类、1000 万次 B 类，直接出站流量免费 | 小规模加密快照可落在额度内；超额及其他计费服务另计 |
 
-来源：[Workers 价格](https://developers.cloudflare.com/workers/platform/pricing/)、[D1 价格](https://developers.cloudflare.com/d1/platform/pricing/)、[R2 价格](https://developers.cloudflare.com/r2/pricing/)。R2 开通需订阅及结算流程，见 [R2 开通说明](https://developers.cloudflare.com/r2/get-started/)。本版不承诺完全免费。
+来源：[Workers 价格](https://developers.cloudflare.com/workers/platform/pricing/)、[DO 免费额度](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[D1 价格](https://developers.cloudflare.com/d1/platform/pricing/)、[R2 价格](https://developers.cloudflare.com/r2/pricing/)。部署保持免费额度，不自动升级或开通收费项目；超额采用限流、停止操作等明确处理。R2 开通需订阅及结算流程，见 [R2 开通说明](https://developers.cloudflare.com/r2/get-started/)，当前未启用，后续必须先评估其与免费部署要求的兼容性。
 
 KV 不作为唯一同步主数据或设备撤销依据，其最终一致性不适合版本竞争及即时权限变更。D1 承担这些状态，参考 [KV 一致性说明](https://developers.cloudflare.com/kv/concepts/how-kv-works/)。
 
@@ -398,7 +399,7 @@ KV 不作为唯一同步主数据或设备撤销依据，其最终一致性不�
 | 项目 | 当前建议 | 确定方式 |
 | --- | --- | --- |
 | 最低系统版本 | 实现前按实际手机确定 | 记录测试机 Android 版本和可用生物识别能力 |
-| 认证运行成本 | 保留 Workers 付费方案候选 | 真实 Worker KDF 基准，确认能否用免费档及可接受预算 |
+| 认证运行成本 | 免费 Workers 加 SQLite DO，保持原 Argon2id 参数 | 真实云端验证；该路线失败后再评估 Firebase，暂不考虑 Supabase |
 | 两种密码的体验 | 保留独立平台密码和保险库密码，日常通过本机解锁减少输入 | 界面评审；不能未经设计把两者直接合并 |
 | 域名和 Google 配置 | 自有稳定域名，基本身份权限 | 确认域名及实际 OAuth 配置；不阻塞独立账号开发 |
 | NAS 运行环境 | Docker 或 Python 定时脚本 | 确认 NAS 系统、容器支持、目录及出站网络 |

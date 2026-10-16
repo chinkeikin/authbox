@@ -60,8 +60,8 @@ export class AuthProbe {
     this.env = env;
     this.sql = ctx.storage.sql;
     this.instance = crypto.randomUUID();
-    this.pending = Promise.resolve();
-    this.queued = 0;
+    this.waiters = [];
+    this.locked = false;
     this.activeHashes = 0;
     this.maxActiveHashes = 0;
     this.sql.exec('CREATE TABLE IF NOT EXISTS accounts (username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, memory_kib INTEGER NOT NULL, iterations INTEGER NOT NULL, parallelism INTEGER NOT NULL, hash_bytes INTEGER NOT NULL)');
@@ -72,12 +72,15 @@ export class AuthProbe {
     if (rejected) return rejected;
     const target = route(request);
     if (!target) return response({ error: 'Not found' }, 404);
-    if (this.queued >= 8) return response({ error: 'Probe queue full' }, 429);
-    this.queued += 1;
-    const job = this.pending.then(() => this.perform(request, target));
-    this.pending = job.then(() => undefined, () => undefined);
-    try { return await job; }
-    finally { this.queued -= 1; }
+    if (this.waiters.length >= 8) return response({ error: 'Probe queue full' }, 429);
+    if (this.locked) await new Promise((resolve) => this.waiters.push(resolve));
+    else this.locked = true;
+    try { return await this.perform(request, target); }
+    finally {
+      const next = this.waiters.shift();
+      if (next) next();
+      else this.locked = false;
+    }
   }
 
   async perform(request, { label, action }) {
@@ -96,8 +99,8 @@ export class AuthProbe {
       return response({ cleared: true });
     }
     if (action === 'vector') {
-      const hash = hex(nobleArgon2id(new Uint8Array(32).fill(1), new Uint8Array(16).fill(2), rfcProfile));
       event(label, action, true);
+      const hash = hex(nobleArgon2id(new Uint8Array(32).fill(1), new Uint8Array(16).fill(2), rfcProfile));
       return response({ hash, matches: hash === rfcExpected });
     }
     let input;
@@ -115,18 +118,17 @@ export class AuthProbe {
     }
     this.activeHashes += 1;
     this.maxActiveHashes = Math.max(this.maxActiveHashes, this.activeHashes);
+    event(label, action, true);
     try {
       if (action === 'register') {
         const salt = crypto.getRandomValues(new Uint8Array(16));
         const hash = await argon2id({ ...wasmOptions(serverProfile), password: input.password, salt, outputType: 'encoded' });
         this.sql.exec('INSERT INTO accounts VALUES (?, ?, ?, ?, ?, ?)', input.username, hash,
           serverProfile.m, serverProfile.t, serverProfile.p, serverProfile.dkLen);
-        event(label, action, true);
         return response({ registered: true, profile: serverProfile }, 201);
       }
       const verified = row ? await argon2Verify({ password: input.password, hash: row.password_hash }) : false;
       if (!row) await argon2id({ ...wasmOptions(serverProfile), password: input.password, salt: crypto.getRandomValues(new Uint8Array(16)) });
-      event(label, action, true);
       return response(verified ? { verified: true, profile: serverProfile } : { error: 'Invalid credentials' }, verified ? 200 : 401);
     } finally {
       this.activeHashes -= 1;

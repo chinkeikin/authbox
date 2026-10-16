@@ -5,13 +5,13 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.13.0"
   },
   "scripts": {
     "verify:worker": "node tools/feasibility/run-worker.mjs",
     "verify:worker:static-wasm": "node tools/feasibility/run-static-wasm.mjs",
     "verify:worker:durable": "node tools/feasibility/run-durable-local.mjs",
-    "verify:cloudflare:durable": "node --env-file=.env.cloudflare tools/feasibility/run-durable-cloud.mjs",
+    "verify:cloudflare:durable": "node --use-env-proxy --env-file=.env.cloudflare tools/feasibility/run-durable-cloud.mjs",
     "verify:cloudflare": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs",
     "verify:cloudflare:route": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --route-only",
     "verify:cloudflare:domain": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --custom-domain",

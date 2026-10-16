@@ -53,6 +53,10 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 
 静态加载构建器只改 hash-wasm 的模块加载，不改算法或全局对象；未知模块、源码摘要和版本变化均拒绝。WASM、适配源码、模块摘要及第三方许可生成于 `.cache/feasibility/static-wasm/`，完整许可和 C 文件头同时保留在部署脚本的许可块。BLAKE2 参考实现采用其允许的 CC0 选项。该适配仅是可行性探针，尚非正式认证模块。
 
+DO 命令要求 Node 24.13.0 或以上，使用本机已有代理环境变量。密码计算保持 32 MiB、3 轮、并行度 1；只接收有界合成测试输入，读出哈希的检查接口不能用于正式账号。密码检查在对象内串行执行，每个等待请求持有自己的 Promise，队列最多保留 8 个等待者。
+
+DO 可行性验收检查完整请求集、真实免费账号和 SQLite 类型，以及至少 3 条同参数 CPU 样本（包含成功密码校验）。实时日志覆盖数与缺失标签单独报告，不要求实时流完整才承认功能结果，也不将未到达日志填成 0 ms。本轮结果见 [DO 记录](../../docs/feasibility/durable-object.md)，生产容量验收尚未完成。若测试中断，使用同一配置运行 `npm run verify:cloudflare:durable -- --cleanup`，程序只对本地报告中归属匹配的 Worker 执行类删除和清理。
+
 ## Android 真机互通
 
 运行 `npm run verify:android` 前配置 `AUTHBOX_ANDROID_SERIAL`、`JAVA_HOME` 和 `ANDROID_HOME` 或 `AUTHBOX_ANDROID_SDK`。默认构建工具为 36.1.0、编译平台为 android-35，可用 `AUTHBOX_ANDROID_BUILD_TOOLS` 和 `AUTHBOX_ANDROID_PLATFORM` 覆盖。
