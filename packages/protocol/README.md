@@ -1,6 +1,6 @@
 # AuthBox 跨端协议
 
-本目录存放跨端格式和可复用的纯 ESM 模块，可由后续 TypeScript 工程打包使用。尚未完成账号服务、Android 应用或 Chrome 扩展。
+本目录存放跨端格式和可复用的纯 ESM 模块，可由后续 TypeScript 工程打包使用。账号与同步核心见 [服务模块](../../services/api/README.md)，Android 应用和 Chrome 扩展尚未建立。
 
 ## TOTP
 
@@ -16,7 +16,7 @@
 
 `src/vault.mjs` 提供 AES-256-GCM 实体加密、64 MiB Argon2id 密码封装、独立 HKDF 恢复封装及恢复密钥校验编码。`src/backup.mjs` 提供自包含备份、摘要检查和完整认证后的离线恢复。完整规则、限制与后续服务端事务约束见 [协议 v1](../../docs/protocol-v1.md)。
 
-`test/fixtures/v1.json` 是公开固定向量，含合成密码和测试密钥，不得用于真实加密。执行 `npm test` 运行协议测试；`npm run verify:protocol:browser` 和 `npm run verify:protocol:android` 验证真实运行环境。安装工程、Keystore、MV3 生命周期及账号恢复服务仍未完成。
+`test/fixtures/v1.json` 是公开固定加密容器向量，含合成密码和测试密钥，不得用于真实加密；业务 schema 样本见 `tools/protocol/fixtures.mjs`。执行 `npm run test:protocol` 运行协议测试，`npm test` 额外验证服务；`npm run verify:protocol:browser` 和 `npm run verify:protocol:android` 验证真实运行环境。安装工程、Keystore、MV3 生命周期及客户端恢复流程仍未完成。
 
 ## 业务、同步和权限
 

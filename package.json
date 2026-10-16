@@ -26,9 +26,14 @@
     "inspect:nas": "node tools/feasibility/inspect-nas.mjs",
     "verify:nas": "node tools/feasibility/run-nas.mjs",
     "test:protocol": "node --test packages/protocol/test/*.test.mjs",
-    "test": "npm run test:protocol",
+    "test": "npm run test:protocol && npm run test:api:http && npm run test:api && npm run verify:api:production",
     "verify:protocol:browser": "node tools/protocol/run-browser.mjs",
-    "verify:protocol:android": "node tools/protocol/run-android.mjs"
+    "verify:protocol:android": "node tools/protocol/run-android.mjs",
+    "test:api:http": "node --test services/api/test/http.test.mjs",
+    "test:api": "node tools/api/run-local.mjs",
+    "build:api": "node tools/api/build.mjs",
+    "verify:api:production": "node tools/api/check-production.mjs",
+    "verify:api:cloud": "node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

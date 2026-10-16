@@ -4,7 +4,7 @@
 
 日期：2026年10月16日
 
-状态：阶段 1 的免费 SQLite DO 认证已通过，阶段 2 跨端密码学与备份格式实现中；已验证和待验证项见 [验证进度](feasibility/README.md) 与 [协议结果](protocol-results.md)，正式客户端和业务服务尚未实现
+状态：协议基线和账号/同步核心服务已实现并通过免费环境验证；已验证和待验证项见 [验证进度](feasibility/README.md)、[协议结果](protocol-results.md) 与 [服务结果](api-results.md)，正式客户端和生产部署尚未完成
 
 第一版提供手机端完整管理、Chrome 扩展只读取码、自建账号及可选 Google 绑定。验证密钥和管理信息在客户端加密后同步到 Cloudflare，各设备本地生成验证码；NAS 主动下载可独立恢复的加密备份。目标是账号多时快速找到验证码，同时覆盖手机丢失、多设备使用、误删和云端不可访问的恢复场景。
 
@@ -324,7 +324,7 @@ NAS 下载时先写临时文件，校验完整长度、格式、目标保险库�
 | 备份清单及对象下载 | NAS 专用凭据 | 仅固定保险库，只读；默认不允许 Chrome 访问完整备份接口 |
 | 账号恢复 | 独立恢复流程 | 一次性高熵恢复码、限速、消耗与撤销原子执行 |
 
-R2 对象不公开访问。Worker 通过绑定读取并鉴权后提供下载；若采用短期下载地址，需限定对象、用途和有效期，并明确地址有效期间的撤销边界。客户端包不包含 R2 管理密钥或 Cloudflare API Token。
+密文快照不公开访问，Worker 在当前主体鉴权后提供下载。NAS 专用备份接口及凭据留待 NAS 步骤实现；普通客户端同步也可采用完整密文快照格式，不等于授予 NAS 凭据管理能力。当前未使用短期公开下载地址、R2 或 D1；客户端包不包含 Cloudflare API Token。
 
 ## 11 Cloudflare 成本和部署边界
 
@@ -333,13 +333,12 @@ R2 对象不公开访问。Worker 通过绑定读取并鉴权后提供下载；�
 | 产品 | 当前公开额度或费用 | 方案含义 |
 | --- | --- | --- |
 | Workers Free | 每日 10 万请求，每次请求 10ms CPU | 普通入口负责鉴权转发和同步，不直接执行 Argon2id |
-| SQLite Durable Objects Free | 每日 10 万请求、13,000 GB-s 计算时长 | 作为同强度密码认证的免费运行候选，实际验证结果见可行性记录 |
-| D1 Free | 每日读取 500 万行、写入 10 万行，总存储 5GB | 按行扫描和写入计量，索引、历史保留及用户数量影响消耗 |
-| R2 Standard | 每月 10GB month、100 万次 A 类、1000 万次 B 类，直接出站流量免费 | 小规模加密快照可落在额度内；超额及其他计费服务另计 |
+| SQLite Durable Objects Free 计算 | 每日 10 万请求、13,000 GB-s 计算时长 | 已验证同强度认证及同步核心，真实样本与限制见服务记录 |
+| SQLite Durable Objects Free 存储 | 每日读取 500 万行、写入 10 万行，账户总存储 5 GB | 同库保存身份和密文快照，另有更低的应用容量上限 |
 
-来源：[Workers 价格](https://developers.cloudflare.com/workers/platform/pricing/)、[DO 免费额度](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[D1 价格](https://developers.cloudflare.com/d1/platform/pricing/)、[R2 价格](https://developers.cloudflare.com/r2/pricing/)。部署保持免费额度，不自动升级或开通收费项目；超额采用限流、停止操作等明确处理。R2 开通需订阅及结算流程，见 [R2 开通说明](https://developers.cloudflare.com/r2/get-started/)，当前未启用，后续必须先评估其与免费部署要求的兼容性。
+来源：[Workers 价格](https://developers.cloudflare.com/workers/platform/pricing/)、[DO 免费额度](https://developers.cloudflare.com/durable-objects/platform/pricing/)。部署保持 Workers Free，不自动升级或开通收费项目；Free 超额操作报错。当前仅使用 Workers 与 SQLite DO，不开通 R2，也不以额外结算服务承载快照。
 
-KV 不作为唯一同步主数据或设备撤销依据，其最终一致性不适合版本竞争及即时权限变更。D1 承担这些状态，参考 [KV 一致性说明](https://developers.cloudflare.com/kv/concepts/how-kv-works/)。
+KV 不作为同步主数据或设备撤销依据，版本竞争及即时权限变更统一由同一 SQLite DO 的事务与授权记录处理。
 
 云端需部署 API、自建账号登录页、Google 回调及简洁的应用说明和隐私页。建议使用稳定的自有域名并对开发、测试、正式环境分离配置，Google OAuth 客户端和回调也按环境分开。
 

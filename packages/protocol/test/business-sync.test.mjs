@@ -6,6 +6,7 @@ import { MAX_ONLINE_BACKUP_BYTES, validateCommit, validateTransition } from '../
 import { base64url, canonical, randomBytes, sha256, utf8 } from '../src/encoding.mjs';
 import { makeBackupFixture } from '../../../tools/protocol/fixtures.mjs';
 import { accountRecoveryHash, createAccountRecoveryCodes, validateRecoveryHashes } from '../src/account-recovery.mjs';
+import { authenticationContext } from '../src/api.mjs';
 
 const id = '10000000-0000-4000-8000-000000000001';
 let fixture;
@@ -57,6 +58,14 @@ test('account recovery uses independent 128-bit single-use code material and dom
   assert.throws(() => validateRecoveryHashes(Array(8).fill(first.hashes[0])));
   await assert.rejects(accountRecoveryHash('ABR1-not-a-vault-recovery-key'));
   await assert.rejects(accountRecoveryHash('ABAC1-a'));
+});
+
+test('authentication challenge contexts exclude password, invitation and recovery secrets', () => {
+  const body = { username: 'fixture_alice', device: { id }, deviceId: id, password: 'secret password', invite: 'secret invite', code: 'secret recovery',
+    recoveryHashes: ['public hash'], backup: 'encrypted file', proof: 'signature' };
+  assert.deepEqual(authenticationContext('auth.register', body), { username: body.username, device: body.device, recoveryHashes: body.recoveryHashes, backup: body.backup });
+  assert.deepEqual(authenticationContext('auth.recover', body), { username: body.username, device: body.device });
+  assert.deepEqual(authenticationContext('auth.device-login', body), { username: body.username, deviceId: id });
 });
 
 test('read-only and backup credentials cannot create management challenges or mutate state', () => {

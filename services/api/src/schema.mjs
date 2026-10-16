@@ -1,0 +1,20 @@
+export const schema = `
+CREATE TABLE IF NOT EXISTS app_meta (version INTEGER PRIMARY KEY CHECK(version = 1));
+INSERT OR IGNORE INTO app_meta VALUES (1);
+CREATE TABLE IF NOT EXISTS invitations (hash TEXT PRIMARY KEY, user_id TEXT);
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, vault_id TEXT UNIQUE NOT NULL, revision INTEGER NOT NULL DEFAULT 0, key_generation INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, public_key TEXT, role TEXT NOT NULL CHECK(role IN ('reader','manager')), revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS devices_user ON devices(user_id);
+CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL, access_hash TEXT UNIQUE NOT NULL, access_expires INTEGER NOT NULL, refresh_hash TEXT UNIQUE NOT NULL, refresh_expires INTEGER NOT NULL, absolute_expires INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS sessions_device ON sessions(device_id);
+CREATE TABLE IF NOT EXISTS refresh_used (hash TEXT PRIMARY KEY, session_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS refresh_used_session ON refresh_used(session_id);
+CREATE TABLE IF NOT EXISTS challenges (id TEXT PRIMARY KEY, subject TEXT NOT NULL, device_id TEXT NOT NULL, session_id TEXT NOT NULL, operation TEXT NOT NULL, request_hash TEXT NOT NULL, payload TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, prepared_password_hash TEXT);
+CREATE TABLE IF NOT EXISTS recovery_codes (user_id TEXT NOT NULL, hash TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id,hash));
+CREATE TABLE IF NOT EXISTS snapshots (user_id TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL, byte_count INTEGER NOT NULL, created_at INTEGER NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(user_id,revision));
+CREATE TABLE IF NOT EXISTS entity_ids (user_id TEXT NOT NULL, id TEXT NOT NULL, type TEXT NOT NULL, retired INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id,id));
+CREATE TABLE IF NOT EXISTS nonces (user_id TEXT NOT NULL, generation INTEGER NOT NULL, nonce TEXT NOT NULL, record_digest TEXT NOT NULL, PRIMARY KEY(user_id,generation,nonce));
+CREATE TABLE IF NOT EXISTS operations (user_id TEXT NOT NULL, device_id TEXT NOT NULL, operation_id TEXT NOT NULL, request_hash TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(user_id,device_id,operation_id));
+CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, window INTEGER NOT NULL, count INTEGER NOT NULL);
+`;

@@ -1,0 +1,752 @@
+{
+  "generatedAt": "2026-10-16T08:46:06.246Z",
+  "protocolTests": {
+    "passed": 46,
+    "failed": 0
+  },
+  "httpUnitTests": {
+    "passed": 2,
+    "failed": 0
+  },
+  "productionBundle": {
+    "runtimeChecks": 9,
+    "fixtureCodeAbsent": true,
+    "wranglerDryRun": "passed",
+    "deployedToProduction": false
+  },
+  "local": {
+    "generatedAt": "2026-10-16T08:38:08.802Z",
+    "caseCount": 157,
+    "passed": true,
+    "environment": "Local workerd with actual SQLite DO, not cloud deployment or CPU validation"
+  },
+  "cloud": {
+    "generatedAt": "2026-10-16T08:38:34.012Z",
+    "caseCount": 157,
+    "cases": [
+      {
+        "label": "health",
+        "status": 200
+      },
+      {
+        "label": "unauthorized",
+        "status": 401
+      },
+      {
+        "label": "wrong-origin",
+        "status": 403
+      },
+      {
+        "label": "allowed-origin",
+        "status": 200
+      },
+      {
+        "label": "preflight-allowed",
+        "status": 204
+      },
+      {
+        "label": "preflight-denied",
+        "status": 403
+      },
+      {
+        "label": "bad-json",
+        "status": 400
+      },
+      {
+        "label": "duplicate-json-key",
+        "status": 400
+      },
+      {
+        "label": "oversized-body",
+        "status": 413
+      },
+      {
+        "label": "register-challenge",
+        "status": 200
+      },
+      {
+        "label": "register-fault-set",
+        "status": 200
+      },
+      {
+        "label": "register-rollback",
+        "status": 500
+      },
+      {
+        "label": "register-rollback-audit",
+        "status": 200
+      },
+      {
+        "label": "register-fault-clear",
+        "status": 200
+      },
+      {
+        "label": "register-success",
+        "status": 201
+      },
+      {
+        "label": "invite-single-use",
+        "status": 403
+      },
+      {
+        "label": "initial-snapshot",
+        "status": 200
+      },
+      {
+        "label": "clock-61000",
+        "status": 200
+      },
+      {
+        "label": "reader-login",
+        "status": 200
+      },
+      {
+        "label": "reader-pull",
+        "status": 200
+      },
+      {
+        "label": "reader-deny-vault-commit",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-devices-approve",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-devices-revoke",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-password-prepare",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-password-confirm",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-recovery-rotate",
+        "status": 403
+      },
+      {
+        "label": "reader-deny-v1-challenges",
+        "status": 403
+      },
+      {
+        "label": "reader-devices-denied",
+        "status": 403
+      },
+      {
+        "label": "client-role-rejected",
+        "status": 400
+      },
+      {
+        "label": "wrong-password",
+        "status": 401
+      },
+      {
+        "label": "unknown-user",
+        "status": 401
+      },
+      {
+        "label": "chrome-promote-challenge",
+        "status": 200
+      },
+      {
+        "label": "reader-devices-cannot-promote",
+        "status": 409
+      },
+      {
+        "label": "candidate-login",
+        "status": 200
+      },
+      {
+        "label": "approve-mobile-challenge",
+        "status": 200
+      },
+      {
+        "label": "approve-mobile",
+        "status": 200
+      },
+      {
+        "label": "approval-revokes-reader-session",
+        "status": 401
+      },
+      {
+        "label": "device-login-challenge",
+        "status": 200
+      },
+      {
+        "label": "device-login-manager",
+        "status": 200
+      },
+      {
+        "label": "device-proof-single-use",
+        "status": 403
+      },
+      {
+        "label": "clock-122000",
+        "status": 200
+      },
+      {
+        "label": "commit-challenge",
+        "status": 200
+      },
+      {
+        "label": "commit-fault-set",
+        "status": 200
+      },
+      {
+        "label": "commit-rollback",
+        "status": 500
+      },
+      {
+        "label": "rollback-head",
+        "status": 200
+      },
+      {
+        "label": "rollback-snapshot",
+        "status": 200
+      },
+      {
+        "label": "commit-fault-clear",
+        "status": 200
+      },
+      {
+        "label": "commit-success",
+        "status": 200
+      },
+      {
+        "label": "commit-retry",
+        "status": 200
+      },
+      {
+        "label": "operation-id-mismatch",
+        "status": 409
+      },
+      {
+        "label": "proof-request-bound",
+        "status": 403
+      },
+      {
+        "label": "session-bind-challenge",
+        "status": 200
+      },
+      {
+        "label": "proof-session-bound",
+        "status": 403
+      },
+      {
+        "label": "history-read",
+        "status": 200
+      },
+      {
+        "label": "changes-full",
+        "status": 200
+      },
+      {
+        "label": "changes-current",
+        "status": 200
+      },
+      {
+        "label": "future-cursor",
+        "status": 400
+      },
+      {
+        "label": "concurrent-a-challenge",
+        "status": 200
+      },
+      {
+        "label": "concurrent-b-challenge",
+        "status": 200
+      },
+      {
+        "label": "concurrent-cas-one-winner",
+        "statuses": [
+          200,
+          409
+        ]
+      },
+      {
+        "label": "after-concurrent-snapshot",
+        "status": 200
+      },
+      {
+        "label": "remove-entity-challenge",
+        "status": 200
+      },
+      {
+        "label": "remove-entity",
+        "status": 200
+      },
+      {
+        "label": "silent-resurrection-denied-challenge",
+        "status": 200
+      },
+      {
+        "label": "silent-resurrection-denied",
+        "status": 400
+      },
+      {
+        "label": "explicit-history-restore-challenge",
+        "status": 200
+      },
+      {
+        "label": "explicit-history-restore",
+        "status": 200
+      },
+      {
+        "label": "clock-183000",
+        "status": 200
+      },
+      {
+        "label": "other-register-challenge",
+        "status": 200
+      },
+      {
+        "label": "other-register",
+        "status": 201
+      },
+      {
+        "label": "other-user-snapshot",
+        "status": 200
+      },
+      {
+        "label": "cross-user-query-rejected",
+        "status": 400
+      },
+      {
+        "label": "cross-user-device-denied-challenge",
+        "status": 200
+      },
+      {
+        "label": "cross-user-device-denied",
+        "status": 404
+      },
+      {
+        "label": "refresh-rotate",
+        "status": 200
+      },
+      {
+        "label": "old-access-replaced",
+        "status": 401
+      },
+      {
+        "label": "rotated-access-valid",
+        "status": 200
+      },
+      {
+        "label": "refresh-reuse-revokes-family",
+        "status": 401
+      },
+      {
+        "label": "reuse-new-access-revoked",
+        "status": 401
+      },
+      {
+        "label": "reuse-new-refresh-revoked",
+        "status": 401
+      },
+      {
+        "label": "revoke-secondary-challenge",
+        "status": 200
+      },
+      {
+        "label": "revoke-secondary",
+        "status": 200
+      },
+      {
+        "label": "revocation-immediate",
+        "status": 401
+      },
+      {
+        "label": "revoked-retry-denied",
+        "status": 401
+      },
+      {
+        "label": "clock-244000",
+        "status": 200
+      },
+      {
+        "label": "password-prepare",
+        "status": 200
+      },
+      {
+        "label": "password-confirm",
+        "status": 200
+      },
+      {
+        "label": "password-change-revokes-old-session",
+        "status": 401
+      },
+      {
+        "label": "old-password-denied",
+        "status": 401
+      },
+      {
+        "label": "password-proof-replay",
+        "status": 403
+      },
+      {
+        "label": "generic-password-challenge-denied",
+        "status": 400
+      },
+      {
+        "label": "password-prepare-wrong-current",
+        "status": 401
+      },
+      {
+        "label": "recover-challenge",
+        "status": 200
+      },
+      {
+        "label": "recover-fault-set",
+        "status": 200
+      },
+      {
+        "label": "recover-rollback",
+        "status": 500
+      },
+      {
+        "label": "recover-rollback-old-session-valid",
+        "status": 200
+      },
+      {
+        "label": "recover-fault-clear",
+        "status": 200
+      },
+      {
+        "label": "concurrent-recovery-one-winner",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "label": "recovery-revokes-old-manager",
+        "status": 401
+      },
+      {
+        "label": "recovery-keeps-vault",
+        "status": 200
+      },
+      {
+        "label": "recovery-code-single-use",
+        "status": 401
+      },
+      {
+        "label": "clock-305000",
+        "status": 200
+      },
+      {
+        "label": "rotate-recovery-challenge",
+        "status": 200
+      },
+      {
+        "label": "rotate-recovery",
+        "status": 200
+      },
+      {
+        "label": "recovery-old-material-cannot-reactivate-challenge",
+        "status": 200
+      },
+      {
+        "label": "recovery-old-material-cannot-reactivate",
+        "status": 409
+      },
+      {
+        "label": "rotated-old-code-denied",
+        "status": 401
+      },
+      {
+        "label": "historical-nonce-reuse-denied-challenge",
+        "status": 200
+      },
+      {
+        "label": "historical-nonce-reuse-denied",
+        "status": 409
+      },
+      {
+        "label": "nonce-failure-keeps-head",
+        "status": 200
+      },
+      {
+        "label": "audit",
+        "status": 200
+      },
+      {
+        "label": "runtime-reset",
+        "status": 503
+      },
+      {
+        "label": "snapshot-after-reset",
+        "status": 200
+      },
+      {
+        "label": "audit-after-reset",
+        "status": 200
+      },
+      {
+        "label": "rate-1",
+        "status": 200
+      },
+      {
+        "label": "rate-2",
+        "status": 200
+      },
+      {
+        "label": "rate-3",
+        "status": 200
+      },
+      {
+        "label": "rate-4",
+        "status": 200
+      },
+      {
+        "label": "rate-5",
+        "status": 200
+      },
+      {
+        "label": "rate-6",
+        "status": 200
+      },
+      {
+        "label": "rate-7",
+        "status": 200
+      },
+      {
+        "label": "rate-8",
+        "status": 200
+      },
+      {
+        "label": "rate-9",
+        "status": 200
+      },
+      {
+        "label": "rate-10",
+        "status": 200
+      },
+      {
+        "label": "rate-11",
+        "status": 200
+      },
+      {
+        "label": "rate-12",
+        "status": 200
+      },
+      {
+        "label": "rate-13",
+        "status": 200
+      },
+      {
+        "label": "rate-14",
+        "status": 200
+      },
+      {
+        "label": "rate-15",
+        "status": 200
+      },
+      {
+        "label": "rate-16",
+        "status": 200
+      },
+      {
+        "label": "rate-17",
+        "status": 200
+      },
+      {
+        "label": "rate-18",
+        "status": 200
+      },
+      {
+        "label": "rate-19",
+        "status": 200
+      },
+      {
+        "label": "rate-20",
+        "status": 200
+      },
+      {
+        "label": "rate-reset",
+        "status": 503
+      },
+      {
+        "label": "rate-persists-after-reset",
+        "status": 429
+      },
+      {
+        "label": "expiring-proof-challenge",
+        "status": 200
+      },
+      {
+        "label": "clock-396000",
+        "status": 200
+      },
+      {
+        "label": "expired-proof-denied",
+        "status": 403
+      },
+      {
+        "label": "clock-997000",
+        "status": 200
+      },
+      {
+        "label": "access-expired",
+        "status": 401
+      },
+      {
+        "label": "refresh-after-access-expiry",
+        "status": 200
+      },
+      {
+        "label": "clock-2679397000",
+        "status": 200
+      },
+      {
+        "label": "idle-refresh-expired",
+        "status": 401
+      },
+      {
+        "label": "reconnect-after-idle-challenge",
+        "status": 200
+      },
+      {
+        "label": "reconnect-after-idle",
+        "status": 200
+      },
+      {
+        "label": "old-cursor-reset-required",
+        "status": 410
+      },
+      {
+        "label": "old-history-expired",
+        "status": 404
+      },
+      {
+        "label": "current-snapshot-retained",
+        "status": 200
+      },
+      {
+        "label": "clock-4839397000",
+        "status": 200
+      },
+      {
+        "label": "absolute-renew-1",
+        "status": 200
+      },
+      {
+        "label": "clock-6999397000",
+        "status": 200
+      },
+      {
+        "label": "absolute-renew-2",
+        "status": 200
+      },
+      {
+        "label": "clock-9159397000",
+        "status": 200
+      },
+      {
+        "label": "absolute-renew-3",
+        "status": 200
+      },
+      {
+        "label": "clock-10541797000",
+        "status": 200
+      },
+      {
+        "label": "absolute-expiry-no-extension",
+        "status": 401
+      }
+    ],
+    "checks": [
+      "Registration and recovery fault rollback",
+      "Single-use invitation and account recovery",
+      "No plaintext credentials or vault data in SQLite",
+      "Reader cannot mutate or escalate",
+      "Bound one-use device proofs",
+      "Same-user approvals and immediate revocation",
+      "Complete snapshot CAS and idempotency",
+      "Concurrent commits have one winner",
+      "Explicit history restore",
+      "Cross-user isolation",
+      "Refresh rotation and reuse revocation",
+      "Password reauthentication and change",
+      "Runtime reset persistence",
+      "Challenge, access and refresh expiry",
+      "Native Node verifies stored Argon2id profile"
+    ],
+    "runtimeChecksPassed": true,
+    "freeTierRuntimeVerified": true,
+    "profile": {
+      "m": 32768,
+      "t": 3,
+      "p": 1,
+      "dkLen": 32
+    },
+    "sqlite": true,
+    "accountBefore": {
+      "workersSubscriptionCount": 0
+    },
+    "accountAfter": {
+      "workersSubscriptionCount": 0
+    },
+    "hashCpu": [
+      {
+        "label": "register-success",
+        "cpuTimeMs": 228,
+        "outcome": "ok"
+      },
+      {
+        "label": "wrong-password",
+        "cpuTimeMs": 195,
+        "outcome": "ok"
+      },
+      {
+        "label": "candidate-login",
+        "cpuTimeMs": 220,
+        "outcome": "ok"
+      },
+      {
+        "label": "device-login-manager",
+        "cpuTimeMs": 181,
+        "outcome": "ok"
+      },
+      {
+        "label": "other-register",
+        "cpuTimeMs": 175,
+        "outcome": "ok"
+      },
+      {
+        "label": "reconnect-after-idle",
+        "cpuTimeMs": 187,
+        "outcome": "ok"
+      }
+    ],
+    "cpuCoverage": {
+      "expectedCount": 10,
+      "observedCount": 6,
+      "complete": false,
+      "missingLabels": [
+        "reader-login",
+        "unknown-user",
+        "password-prepare",
+        "recover-rollback"
+      ]
+    },
+    "cleanup": {
+      "workerRemoved": true,
+      "namespaceRemoved": true,
+      "domainBindingRemoved": true,
+      "certificateDeletion": "Not verified; independent managed certificate lifecycle"
+    }
+  },
+  "finalResourceAudit": {
+    "generatedAt": "2026-10-16T08:48:03.513Z",
+    "temporaryScriptsRemaining": 0,
+    "temporaryNamespacesRemaining": 0,
+    "temporaryDomainBindingsRemaining": 0,
+    "workersPaidSubscriptions": 0
+  },
+  "staticWasmRegression": "passed"
+}

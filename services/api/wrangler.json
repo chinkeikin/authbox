@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "authbox-api",
+  "main": "../../dist/api/worker.mjs",
+  "compatibility_date": "2026-10-16",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": {
+    "API_ORIGIN": "https://authbox.example.invalid",
+    "CLIENT_ORIGINS": "[]",
+    "REGISTRATION_INVITE_HASHES": "[]"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "INSTALLATION", "class_name": "InstallationStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["InstallationStore"] }],
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }]
+}
