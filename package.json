@@ -9,9 +9,11 @@
   },
   "scripts": {
     "verify:worker": "node tools/feasibility/run-worker.mjs",
+    "verify:worker:static-wasm": "node tools/feasibility/run-static-wasm.mjs",
     "verify:cloudflare": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs",
     "verify:cloudflare:route": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --route-only",
     "verify:cloudflare:domain": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --custom-domain",
+    "verify:cloudflare:domain-static-wasm": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --custom-domain --static-wasm",
     "verify:cloudflare:domain-route": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare.mjs --custom-domain --route-only",
     "verify:cloudflare:domain-safety": "node --test tools/feasibility/domain-plan.test.mjs",
     "verify:cloudflare:preview": "node --env-file=.env.cloudflare tools/feasibility/run-cloudflare-preview.mjs",

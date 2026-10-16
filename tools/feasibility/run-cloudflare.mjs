@@ -11,6 +11,7 @@ import { rfcExpected, serverProfile, wasmOptions } from './fixtures.mjs';
 import cloudWorker from './cloud-worker.mjs';
 import minimalWorker from './cloud-minimal-worker.mjs';
 import { domainBindingRequest } from './domain-plan.mjs';
+import { buildStaticWasm } from './build-static-wasm.mjs';
 
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
 const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? '';
@@ -18,6 +19,8 @@ assert.ok(/^[a-f0-9]{32}$/i.test(accountId), 'Configure CLOUDFLARE_ACCOUNT_ID');
 assert.ok(apiToken.length > 20 && !apiToken.includes('replace-with'), 'Configure CLOUDFLARE_API_TOKEN');
 const routeOnly = process.argv.includes('--route-only');
 const customDomain = process.argv.includes('--custom-domain');
+const staticWasm = process.argv.includes('--static-wasm');
+assert.ok(!staticWasm || !routeOnly, 'Static WASM cannot be combined with route-only mode');
 const testZone = process.env.AUTHBOX_CF_TEST_ZONE ?? '';
 const testHostname = process.env.AUTHBOX_CF_TEST_HOST ?? '';
 if (customDomain) {
@@ -53,7 +56,7 @@ async function api(endpoint, { method = 'GET', body, allowedStatuses = [] } = {}
 
 const report = {
   generatedAt: new Date().toISOString(), environment: 'Cloudflare deployed Worker', name, ownershipTag,
-  mode: routeOnly ? 'public-constant-route-only' : 'fixed-argon2id-fixtures',
+  mode: routeOnly ? 'public-constant-route-only' : staticWasm ? 'static-wasm-argon2id-fixtures' : 'fixed-argon2id-fixtures',
   profile: routeOnly ? undefined : serverProfile, results: [], tail: [], cleanupVerified: false,
 };
 let attemptedUpload = false;
@@ -62,6 +65,8 @@ let socket;
 let failure;
 let zoneId;
 let domainBindingAttempted = false;
+const requestLabels = new Map();
+const isCandidate = (label) => /^sequential-|^concurrent-/.test(label ?? '');
 
 async function waitForOwnedWorker() {
   for (let attempt = 0; attempt < 16; attempt += 1) {
@@ -96,12 +101,15 @@ try {
     report.customDomain = { zoneMatched: true, bindingRemoved: false };
   }
   console.log('Cloudflare preflight passed; uploading an isolated synthetic probe');
-  const bundle = await build({
+  const staticBundle = staticWasm ? await buildStaticWasm() : undefined;
+  const bundle = staticBundle ? undefined : await build({
     entryPoints: [routeOnly ? 'tools/feasibility/cloud-minimal-worker.mjs' : 'tools/feasibility/cloud-worker.mjs'], bundle: true, write: false,
     format: 'esm', platform: 'browser', target: 'es2022', minify: true,
   });
+  const script = staticBundle?.script ?? bundle.outputFiles[0].text;
+  report.staticWasmManifest = staticBundle?.manifest;
   const local = new Miniflare(convertV4MiniflareOptions({
-    name, modules: true, script: bundle.outputFiles[0].text, compatibilityDate: '2026-10-16',
+    name, ...(staticBundle?.localOptions ?? { modules: true, script }), compatibilityDate: '2026-10-16',
     bindings: { PROBE_TOKEN: probeToken, PROBE_EXPIRES_AT: String(Date.now() + 30 * 60 * 1000) },
   }));
   try {
@@ -121,6 +129,13 @@ try {
       });
       assert.equal(vector.status, 200);
       assert.equal((await vector.json()).hash, rfcExpected);
+      if (staticWasm) {
+        const candidate = await local.dispatchFetch('https://probe.invalid/wasm', {
+          method: 'POST', headers: { Authorization: `Bearer ${probeToken}` },
+        });
+        assert.equal(candidate.status, 200);
+        assert.equal((await candidate.json()).hash, await argon2id(wasmOptions(serverProfile)));
+      }
     }
     report.localBundleChecksPassed = true;
   } finally {
@@ -134,10 +149,13 @@ try {
       { name: 'PROBE_EXPIRES_AT', type: 'plain_text', text: String(Date.now() + 30 * 60 * 1000) },
     ],
   })], { type: 'application/json' }));
-  form.set('probe.mjs', new Blob([bundle.outputFiles[0].text], { type: 'application/javascript+module' }), 'probe.mjs');
+  form.set('probe.mjs', new Blob([script], { type: 'application/javascript+module' }), 'probe.mjs');
+  for (const module of staticBundle?.modules ?? []) {
+    form.set(module.name, new Blob([module.contents], { type: 'application/wasm' }), module.name);
+  }
   attemptedUpload = true;
   const uploaded = (await api(scriptPath, { method: 'PUT', body: form })).data.result;
-  report.deployment = { startupTimeMs: uploaded.startup_time_ms, bundleBytes: bundle.outputFiles[0].contents.byteLength };
+  report.deployment = { startupTimeMs: uploaded.startup_time_ms, bundleBytes: Buffer.byteLength(script), wasmBytes: staticBundle?.modules.reduce((sum, item) => sum + item.contents.byteLength, 0) };
   const liveSettings = await waitForOwnedWorker();
   report.deployment.usageModel = liveSettings.usage_model;
   report.deployment.limits = liveSettings.limits;
@@ -178,8 +196,13 @@ try {
       try {
         const raw = typeof event.data === 'string' ? event.data : Buffer.from(event.data).toString('utf8');
         const data = JSON.parse(raw);
+        const headers = data.event?.request?.headers ?? {};
+        const id = Object.entries(headers).find(([key]) => key.toLowerCase() === 'x-authbox-probe-request-id')?.[1];
+        const label = requestLabels.get(id);
+        if (!label) return;
         const pathname = data.event?.request?.url ? new URL(data.event.request.url).pathname : undefined;
         report.tail.push({
+          label,
           path: ['/', '/rfc', '/noble', '/wasm', '/unknown'].includes(pathname) ? pathname : undefined,
           outcome: data.outcome, cpuTimeMs: data.cpuTime, wallTimeMs: data.wallTime,
           exceptionNames: data.exceptions?.map((exception) => exception.name),
@@ -206,8 +229,10 @@ try {
   const expected = routeOnly ? undefined : await argon2id(wasmOptions(serverProfile));
   async function request(route, label, { authorized = true, method = 'POST' } = {}) {
     const start = performance.now();
+    const requestId = randomUUID();
+    requestLabels.set(requestId, label);
     const response = await fetch(`${baseUrl}${route}`, {
-      method, headers: { Accept: 'application/json', ...(authorized ? { Authorization: `Bearer ${probeToken}` } : {}) },
+      method, headers: { Accept: 'application/json', 'X-AuthBox-Probe-Request-Id': requestId, ...(authorized ? { Authorization: `Bearer ${probeToken}` } : {}) },
       redirect: 'error', signal: AbortSignal.timeout(30000),
     });
     const body = await response.text();
@@ -272,14 +297,15 @@ try {
   if (routeOnly) {
     assert.equal((await request('/', 'public-constant', { authorized: false, method: 'GET' })).status, 200);
   } else {
-    assert.equal((await request('/noble', 'unauthorized', { authorized: false })).status, 401);
-    assert.equal((await request('/noble', 'invalid-method', { method: 'GET' })).status, 405);
+    const candidateRoute = staticWasm ? '/wasm' : '/noble';
+    assert.equal((await request(candidateRoute, 'unauthorized', { authorized: false })).status, 401);
+    assert.equal((await request(candidateRoute, 'invalid-method', { method: 'GET' })).status, 405);
     assert.equal((await request('/unknown', 'unknown-route')).status, 404);
     assert.equal((await request('/rfc', 'standard-vector')).status, 200);
-    for (let index = 0; index < 3; index += 1) await request('/noble', `sequential-${index + 1}`);
-    const concurrent = await Promise.allSettled([request('/noble', 'concurrent-1'), request('/noble', 'concurrent-2')]);
+    for (let index = 0; index < 3; index += 1) await request(candidateRoute, `sequential-${index + 1}`);
+    const concurrent = await Promise.allSettled([request(candidateRoute, 'concurrent-1'), request(candidateRoute, 'concurrent-2')]);
     for (const result of concurrent) if (result.status === 'rejected') throw result.reason;
-    await request('/wasm', 'wasm-compatibility');
+    if (!staticWasm) await request('/wasm', 'wasm-compatibility');
   }
   const measurementsEnd = new Date().toISOString();
   report.measurementWindow = { start: measurementsStart, end: measurementsEnd };
@@ -307,6 +333,11 @@ try {
       report.analytics = analytics.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? [];
       report.analyticsCpuFieldDescriptions = analytics.data?.__type?.fields?.filter((field) => ['cpuTimeP50', 'cpuTimeP99'].includes(field.name));
       if (report.analytics.reduce((sum, row) => sum + row.sum.requests, 0) >= report.results.length) break;
+      const candidates = report.results.filter((sample) => isCandidate(sample.label));
+      if (candidates.length > 0 && candidates.every((sample) => report.tail.some((event) => event.label === sample.label && Number.isFinite(event.cpuTimeMs)))) {
+        report.analyticsWaitSkipped = 'Every candidate already has correlated live CPU data';
+        break;
+      }
     } catch (error) {
       report.analyticsError = redact(error.message);
       break;
@@ -353,9 +384,10 @@ try {
       failure ??= error;
     }
   }
-  report.passwordHashRequestsExecuted = report.results.filter((sample) => /^sequential-|^concurrent-/.test(sample.label)).length;
+  report.passwordHashRequestsExecuted = report.results.filter((sample) => isCandidate(sample.label)).length;
+  report.correlatedCandidateCpuCount = new Set(report.tail.filter((event) => isCandidate(event.label) && Number.isFinite(event.cpuTimeMs)).map((event) => event.label)).size;
   report.cloudCpuDataAvailable = report.tail.some((event) => Number.isFinite(event.cpuTimeMs)) || Boolean(report.analytics?.length);
-  await writeFile(`${outputDirectory}/${customDomain ? 'custom-domain-' : ''}${routeOnly ? 'route-report' : 'report'}.json`, `${JSON.stringify(report, null, 2)}\n`);
+  await writeFile(`${outputDirectory}/${customDomain ? 'custom-domain-' : ''}${staticWasm ? 'static-wasm-' : ''}${routeOnly ? 'route-report' : 'report'}.json`, `${JSON.stringify(report, null, 2)}\n`);
 }
 console.log(JSON.stringify(report, null, 2));
 if (failure) process.exitCode = 1;

@@ -67,7 +67,13 @@ CPU 数值来自 Cloudflare 实时执行记录，不是外部请求墙钟。Anal
 
 ## 下一步
 
-自有域名正式执行及 CPU 归因已验证，纯 JavaScript 候选未通过免费档条件。下一步评估静态导入预编译 WASM 或其他认证运行环境；不替换全局 WebAssembly、不为运行额度降低密码哈希强度，也不开通未经用户决定的付费方案。
+### 静态 WASM 本地验证
+
+固定 hash-wasm 4.12.0 与发布源码 SHA256，从包内提取原始 Argon2 和 BLAKE2b WASM，不修改二进制或算法。构建时只替换模块缓存与动态编译回退，改为两个静态导入；未登记模块直接拒绝，不替换全局 WebAssembly。版本、源码或预期加载片段变化时停止构建。打包产物保留 MIT 许可及相关 C 实现声明。
+
+`npm run verify:worker:static-wasm` 在本地 workerd 通过 5 类交叉校验：32 MiB 服务端参数、Unicode 密码、变化盐、64 MiB 客户端参数及含 secret 的双通道输入。输出同时符合 Node 原生 argon2Sync、未适配的 hash-wasm 和 noble；不同盐的并发请求也一致。32 MiB 基础输入本地请求墙钟约 63 ms，不能作为正式 CPU 资格。完整 RFC 9106 第 5.3 节仍通过 noble 验证，hash-wasm 的公开 API 不提供 associated data，未冒充完整 RFC 用例。
+
+自有域名正式执行及 CPU 归因已验证，纯 JavaScript 候选未通过免费档条件。静态导入已通过本地兼容与正确性检查，下一步执行正式域名 CPU 测量；不为运行额度降低密码哈希强度，也不开通未经用户决定的付费方案。
 
 当前官方文档仍将 `node:crypto` 的 argon2 和 argon2Sync 列为不支持，不能以 Node.js 本机支持推断 Workers 可用。
 

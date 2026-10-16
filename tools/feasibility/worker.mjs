@@ -6,8 +6,8 @@ import {
   hex,
   rfcProfile,
   serverProfile,
-  wasmOptions,
 } from './fixtures.mjs';
+import { staticWasmCases } from './static-wasm-cases.mjs';
 
 export default {
   async fetch(request, env) {
@@ -31,9 +31,10 @@ export default {
         const hash = nobleArgon2id(fixturePassword, fixtureSalt, serverProfile);
         return Response.json({ implementation: 'noble', hash: hex(hash), profile: serverProfile }, { headers });
       }
-      if (action === '/wasm') {
-        const hash = await wasmArgon2id(wasmOptions(serverProfile));
-        return Response.json({ implementation: 'hash-wasm', hash, profile: serverProfile }, { headers });
+      const wasmCase = staticWasmCases.find((item) => item.path === action);
+      if (wasmCase) {
+        const hash = await wasmArgon2id(wasmCase.options);
+        return Response.json({ implementation: 'hash-wasm', hash, profile: wasmCase.profile }, { headers });
       }
       return new Response('Not found', { status: 404 });
     } catch (error) {

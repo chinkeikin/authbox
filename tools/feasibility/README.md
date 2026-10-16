@@ -38,12 +38,16 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 - `npm run verify:cloudflare:preview`：通过官方 Wrangler 远程开发预览运行相同 KDF，停止后核对回环监听已关闭。
 - `npm run verify:cloudflare:domain-route` 和 `npm run verify:cloudflare:domain`：按本机环境变量中的授权 Zone 和测试子域名创建自定义入口，分别验证最小响应和固定 KDF。
 - `npm run verify:cloudflare:domain-safety`：本地检查 8 类域名变更计划，只允许指定新增域名，不访问云端。
+- `npm run verify:worker:static-wasm`：固定上游版本和源码摘要，在本地 workerd 校验静态 WASM；5 类输入与 Node 原生、原库和 noble 交叉比对，并检查不同盐的并发请求。
+- `npm run verify:cloudflare:domain-static-wasm`：同样的授权域名流程，上传两个预编译 WASM 模块，测量 3 次顺序和 2 个并发候选请求。实时日志通过随机请求标识关联，只保存标签、结果与 CPU 字段。
 
 部署程序先在本地 workerd 验证同一打包产物，等待云端控制面传播，结束后核对独立归属标签并删除，只操作本次创建的临时资源。报告位于 `.cache/feasibility/cloudflare/`。临时探针 30 分钟失效；路由对照的公开常量不执行密码哈希。
 
 没有取得正式 CPU 数据或就绪失败时，报告明确保留未完成状态。已知负面结果见 [云端记录](../../docs/feasibility/cloudflare.md)，不能把探针程序执行结束或预览 HTTP 200 当作免费档验收通过。
 
 自定义域名程序先进行服务端冲突预检查，不覆盖已有记录或绑定；结束后移除本次域名绑定及 Worker。对应托管证书的生命周期另行记录，不能假定它随绑定自动删除。报告采用 `custom-domain-` 前缀，实际测试域名及标识留在被忽略的本机配置和报告中。
+
+静态加载构建器只改 hash-wasm 的模块加载，不改算法或全局对象；未知模块、源码摘要和版本变化均拒绝。WASM、适配源码、模块摘要及第三方许可生成于 `.cache/feasibility/static-wasm/`，完整许可和 C 文件头同时保留在部署脚本的许可块。BLAKE2 参考实现采用其允许的 CC0 选项。该适配仅是可行性探针，尚非正式认证模块。
 
 ## Android 真机互通
 
