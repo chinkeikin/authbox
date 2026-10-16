@@ -10,12 +10,20 @@ import WebSocket from 'ws';
 import { rfcExpected, serverProfile, wasmOptions } from './fixtures.mjs';
 import cloudWorker from './cloud-worker.mjs';
 import minimalWorker from './cloud-minimal-worker.mjs';
+import { domainBindingRequest } from './domain-plan.mjs';
 
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
 const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? '';
 assert.ok(/^[a-f0-9]{32}$/i.test(accountId), 'Configure CLOUDFLARE_ACCOUNT_ID');
 assert.ok(apiToken.length > 20 && !apiToken.includes('replace-with'), 'Configure CLOUDFLARE_API_TOKEN');
 const routeOnly = process.argv.includes('--route-only');
+const customDomain = process.argv.includes('--custom-domain');
+const testZone = process.env.AUTHBOX_CF_TEST_ZONE ?? '';
+const testHostname = process.env.AUTHBOX_CF_TEST_HOST ?? '';
+if (customDomain) {
+  assert.ok(/^[a-z0-9.-]+$/.test(testZone) && testZone.includes('.'), 'Configure AUTHBOX_CF_TEST_ZONE');
+  assert.ok(/^[a-z0-9.-]+$/.test(testHostname) && testHostname.endsWith(`.${testZone}`), 'Configure a test subdomain in AUTHBOX_CF_TEST_HOST');
+}
 const name = routeOnly ? `authbox-feasibility-route-${randomUUID().slice(0, 8)}` : 'authbox-feasibility';
 const marker = routeOnly ? 'minimal-v1' : 'synthetic-v1';
 const scriptPath = `/accounts/${accountId}/workers/scripts/${name}`;
@@ -34,7 +42,8 @@ async function api(endpoint, { method = 'GET', body, allowedStatuses = [] } = {}
     headers: { Authorization: `Bearer ${apiToken}`, 'Cache-Control': 'no-store', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) },
     redirect: 'error', signal: AbortSignal.timeout(30000),
   });
-  const data = await response.json();
+  const responseBody = await response.text();
+  const data = responseBody ? JSON.parse(responseBody) : { success: response.ok };
   if ((!response.ok || data.success === false || data.errors?.length) && !allowedStatuses.includes(response.status)) {
     const errors = data.errors?.map(({ code, message }) => ({ code, message: redact(message) }));
     throw new Error(`Cloudflare ${method} ${redact(endpoint)}: HTTP ${response.status} ${JSON.stringify(errors)}`);
@@ -51,6 +60,8 @@ let attemptedUpload = false;
 let tailId;
 let socket;
 let failure;
+let zoneId;
+let domainBindingAttempted = false;
 
 async function waitForOwnedWorker() {
   for (let attempt = 0; attempt < 16; attempt += 1) {
@@ -75,6 +86,15 @@ try {
   assert.match(subdomain, /^[a-z0-9-]+$/i, 'A registered workers.dev subdomain is required');
   const scripts = (await api(`/accounts/${accountId}/workers/scripts`)).data.result;
   assert.ok(!scripts.some((script) => script.id === name), 'Existing authbox-feasibility Worker will not be overwritten');
+  if (customDomain) {
+    const zones = (await api(`/zones?name=${encodeURIComponent(testZone)}`)).data.result;
+    const zone = zones.find((item) => item.name === testZone && item.account?.id === accountId && item.status === 'active');
+    assert.ok(zone, 'Test zone must be active in the configured account');
+    zoneId = zone.id;
+    const domains = (await api(`/accounts/${accountId}/workers/domains`)).data.result;
+    assert.ok(!domains.some((domain) => domain.hostname === testHostname), 'Existing custom domain will not be overwritten');
+    report.customDomain = { zoneMatched: true, bindingRemoved: false };
+  }
   console.log('Cloudflare preflight passed; uploading an isolated synthetic probe');
   const bundle = await build({
     entryPoints: [routeOnly ? 'tools/feasibility/cloud-minimal-worker.mjs' : 'tools/feasibility/cloud-worker.mjs'], bundle: true, write: false,
@@ -122,7 +142,28 @@ try {
   report.deployment.usageModel = liveSettings.usage_model;
   report.deployment.limits = liveSettings.limits;
   await api(`${scriptPath}/subdomain`, { method: 'POST', body: JSON.stringify({ enabled: true, previews_enabled: false }) });
-  const baseUrl = `https://${name}.${subdomain}.workers.dev`;
+  const workersDevUrl = `https://${name}.${subdomain}.workers.dev`;
+  let baseUrl = workersDevUrl;
+  if (customDomain) {
+    const origins = [{ hostname: testHostname, zone_id: zoneId, enabled: true, previews_enabled: false }];
+    const changeset = (await api(`${scriptPath}/domains/changeset?replace_state=true`, {
+      method: 'POST', body: JSON.stringify(origins),
+    })).data.result;
+    const bindingRequest = domainBindingRequest(changeset, testHostname, zoneId);
+    report.customDomain.conflictPlanValidated = true;
+    domainBindingAttempted = true;
+    await api(`${scriptPath}/domains/records`, { method: 'PUT', body: JSON.stringify(bindingRequest) });
+    const domains = (await api(`/accounts/${accountId}/workers/domains`)).data.result;
+    const binding = domains.find((domain) => domain.hostname === testHostname && domain.service === name && domain.zone_id === zoneId);
+    assert.ok(binding, 'Custom domain binding was not confirmed');
+    report.customDomain.certificateId = binding.cert_id;
+    report.customDomain.bound = true;
+    await api(`${scriptPath}/subdomain`, { method: 'POST', body: JSON.stringify({ enabled: true, previews_enabled: false }) });
+    report.customDomain.workersDevEnabled = (await api(`${scriptPath}/subdomain`)).data.result.enabled;
+    assert.equal(report.customDomain.workersDevEnabled, true, 'workers.dev comparison endpoint must be enabled');
+    baseUrl = `https://${testHostname}`;
+    console.log('Custom domain attached after conflict checks; waiting for HTTPS readiness');
+  }
 
   try {
     const tail = (await api(`${scriptPath}/tails`, { method: 'POST' })).data.result;
@@ -196,19 +237,36 @@ try {
     return sample;
   }
 
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const ready = await fetch(`${baseUrl}${routeOnly ? '/' : '/rfc'}`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
-    const reachedProbe = ready.headers.get('X-AuthBox-Probe') === marker;
-    const status = ready.status;
-    await ready.body?.cancel();
+  const readinessAttempts = customDomain ? 61 : 16;
+  for (let attempt = 0; attempt < readinessAttempts; attempt += 1) {
+    let status;
+    let reachedProbe = false;
+    try {
+      const ready = await fetch(`${baseUrl}${routeOnly ? '/' : '/rfc'}`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+      reachedProbe = ready.headers.get('X-AuthBox-Probe') === marker;
+      status = ready.status;
+      await ready.body?.cancel();
+    } catch (error) {
+      if (!customDomain) throw error;
+      report.lastReadinessNetworkError = error.cause?.code ?? error.name;
+    }
     if (status === (routeOnly ? 200 : 401) && reachedProbe) break;
-    if (attempt === 15) {
+    if (attempt === readinessAttempts - 1) {
       await request(routeOnly ? '/' : '/rfc', 'readiness-failure', { authorized: false, method: routeOnly ? 'GET' : 'POST' });
       await delay(2000);
-      throw new Error('Workers.dev did not serve the probe within the readiness window');
+      throw new Error('Selected entrypoint did not serve the probe within the readiness window');
     }
     console.log(JSON.stringify({ readinessAttempt: attempt + 1, status, reachedProbe }));
     await delay(2000);
+  }
+  if (customDomain) {
+    const response = await fetch(`${workersDevUrl}${routeOnly ? '/' : '/rfc'}`, {
+      headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15000),
+    });
+    const body = await response.text();
+    let data;
+    try { data = JSON.parse(body); } catch { data = {}; }
+    report.workersDevComparison = { status: response.status, reachedProbe: response.headers.get('X-AuthBox-Probe') === marker, errorCode: data.error_code };
   }
   const measurementsStart = new Date().toISOString();
   if (routeOnly) {
@@ -263,6 +321,18 @@ try {
   if (attemptedUpload) {
     try {
       await waitForOwnedWorker();
+      if (domainBindingAttempted) {
+        const domains = (await api(`/accounts/${accountId}/workers/domains`)).data.result;
+        const binding = domains.find((domain) => domain.hostname === testHostname);
+        if (binding) {
+          assert.ok(binding.service === name && binding.zone_id === zoneId, 'Refusing to remove a domain now owned by another service');
+          await api(`/accounts/${accountId}/workers/domains/${binding.id}`, { method: 'DELETE' });
+        }
+        const remainingDomains = (await api(`/accounts/${accountId}/workers/domains`)).data.result;
+        assert.ok(!remainingDomains.some((domain) => domain.hostname === testHostname), 'Custom domain binding still exists');
+        report.customDomain.bindingRemoved = true;
+        report.customDomain.managedCertificateCleanup = 'Custom domain deletion does not prove certificate deletion; certificate id retained for follow-up';
+      }
       await api(scriptPath, { method: 'DELETE' });
       let absentChecks = 0;
       for (let attempt = 0; attempt < 16; attempt += 1) {
@@ -282,7 +352,7 @@ try {
   }
   report.passwordHashRequestsExecuted = report.results.filter((sample) => /^sequential-|^concurrent-/.test(sample.label)).length;
   report.cloudCpuDataAvailable = report.tail.some((event) => Number.isFinite(event.cpuTimeMs)) || Boolean(report.analytics?.length);
-  await writeFile(`${outputDirectory}/${routeOnly ? 'route-report' : 'report'}.json`, `${JSON.stringify(report, null, 2)}\n`);
+  await writeFile(`${outputDirectory}/${customDomain ? 'custom-domain-' : ''}${routeOnly ? 'route-report' : 'report'}.json`, `${JSON.stringify(report, null, 2)}\n`);
 }
 console.log(JSON.stringify(report, null, 2));
 if (failure) process.exitCode = 1;

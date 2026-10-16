@@ -36,10 +36,14 @@ Miniflare 固定为与 Wrangler 4.151.0 自身依赖相同的 5.20261012.0-beta�
 - `npm run verify:cloudflare`：受随机密钥保护的固定 KDF 探针，正式入口就绪后才执行哈希和 Analytics 查询。
 - `npm run verify:cloudflare:route`：全新临时名称，仅返回公开常量，用于排除加密库影响。
 - `npm run verify:cloudflare:preview`：通过官方 Wrangler 远程开发预览运行相同 KDF，停止后核对回环监听已关闭。
+- `npm run verify:cloudflare:domain-route` 和 `npm run verify:cloudflare:domain`：按本机环境变量中的授权 Zone 和测试子域名创建自定义入口，分别验证最小响应和固定 KDF。
+- `npm run verify:cloudflare:domain-safety`：本地检查 8 类域名变更计划，只允许指定新增域名，不访问云端。
 
 部署程序先在本地 workerd 验证同一打包产物，等待云端控制面传播，结束后核对独立归属标签并删除，只操作本次创建的临时资源。报告位于 `.cache/feasibility/cloudflare/`。临时探针 30 分钟失效；路由对照的公开常量不执行密码哈希。
 
 没有取得正式 CPU 数据或就绪失败时，报告明确保留未完成状态。已知负面结果见 [云端记录](../../docs/feasibility/cloudflare.md)，不能把探针程序执行结束或预览 HTTP 200 当作免费档验收通过。
+
+自定义域名程序先进行服务端冲突预检查，不覆盖已有记录或绑定；结束后移除本次域名绑定及 Worker。对应托管证书的生命周期另行记录，不能假定它随绑定自动删除。报告采用 `custom-domain-` 前缀，实际测试域名及标识留在被忽略的本机配置和报告中。
 
 ## Android 真机互通
 

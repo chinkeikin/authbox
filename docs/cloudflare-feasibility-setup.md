@@ -19,6 +19,14 @@
 
 此探针不需要 DNS、域名路由、KV、D1、R2 或账单编辑权限。若控制台采用新版按 Worker 分配的角色，按现有测试 Worker 限定权限；创建新 Worker 所需范围以实际 API 校验为准，不自动扩大 Token 权限。
 
+## 可选自有域名对照
+
+仅在域名所有者已授权后，在本机设置 `AUTHBOX_CF_TEST_ZONE=example.com` 和 `AUTHBOX_CF_TEST_HOST=authbox-test.example.com`。执行 `npm run verify:cloudflare:domain-route` 检查最小响应；`npm run verify:cloudflare:domain` 检查固定 KDF。
+
+程序使用 Workers 自定义域名接口自动配置目标记录与证书。要求令牌能读取对应 Zone，绑定权限由 Workers Scripts Write 提供；直接 DNS 读取权限不作为前提。先取得服务端变更计划，无冲突、无其他更新删除且只新增指定子域名时才执行；覆盖已有 DNS、已有源站及绑定范围的选项全部关闭。
+
+结束后只删除本次归属的域名绑定和 Worker，并保存复核结果。Cloudflare 不保证随绑定删除托管证书，证书标识仅保存本机，不能把 Worker 已删除等同于证书已删除。依据：[自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。
+
 ## 结果边界
 
 Miniflare 本地成功不代表免费档 CPU 和内存限制通过。只有实际请求执行与 Cloudflare 指标或限制错误，才能决定云端资格。缺少 Token 时不把这一项标记完成，也不默认开通付费套餐。
