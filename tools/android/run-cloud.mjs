@@ -6,6 +6,7 @@ import { canonical } from '../../packages/protocol/src/encoding.mjs';
 import { inspectBackup, restoreBackup, createBackup } from '../../packages/protocol/src/backup.mjs';
 import { validateVaultEntities } from '../../packages/protocol/src/business.mjs';
 import { sealRecord } from '../../packages/protocol/src/vault.mjs';
+import { validateCommit, validateTransition } from '../../packages/protocol/src/sync.mjs';
 
 export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite, registrationInvite }) {
   await checkDevice();
@@ -151,8 +152,42 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
     results.push('Offline copy registers a fresh manager vault with independent keys and identical business data',
       'Recovery kit matches the new account; reader downloads it and independent Node verifies subsequent sync',
       'Original cloud snapshot and local offline copy remain unchanged');
+    await instrument('CloudSyncReviewTest');
+    const reviewed = await artifact('cloud-review-result.json');
+    const reviewLogin = await (await request('/v1/auth/login', { username: config.username, password: config.password,
+      deviceName: 'Review observer', publicKey: null })).json();
+    const reviewBackup = await (await request('/v1/vault/snapshot', undefined, reviewLogin.session.accessToken)).text();
+    assert.equal(reviewBackup, reviewed.backup);
+    const finalReview = await restoreBackup(reviewBackup, { purpose: 'recovery', secret: initial.recoveryKey });
+    const originalReview = await restoreBackup(initial.backup, { purpose: 'password', secret: config.vaultPassword });
+    try {
+      validateVaultEntities(finalReview.entities); assert.equal(finalReview.revision, 8);
+      assert.deepEqual(finalReview.entities.map(({ metadata, payload }) => [metadata.id, payload]), originalReview.entities.map(({ metadata, payload }) => [metadata.id, payload]));
+      const before = await inspectBackup(reviewed.beforeHistory);
+      const after = await validateCommit({ operationId: randomUUID(), baseRevision: 7, restoredIds: reviewed.restoredIds, backup: reviewBackup });
+      validateTransition(before, after, new Map(reviewed.restoredIds.map((id) => [id, 'account'])), reviewed.restoredIds);
+      assert.deepEqual(after.wraps, before.wraps);
+    } finally { finalReview.vmk.fill(0); originalReview.vmk.fill(0); }
+    const preserved = [];
+    for (const encoded of reviewed.saved) {
+      const opened = await restoreBackup(encoded, { purpose: 'recovery', secret: initial.recoveryKey });
+      try { preserved.push(opened.entities.map(({ payload }) => payload)); } finally { opened.vmk.fill(0); }
+    }
+    assert.ok(preserved.some((rows) => rows.some((row) => row.name === 'Android 本地待解决')));
+    assert.ok(preserved.some((rows) => rows.some((row) => row.name === 'Node concurrent update')));
+    assert.ok(preserved.some((rows) => rows.some((row) => row.notes === 'Concurrent review peer')));
+    const reviewHistory = await (await request('/v1/vault/history?limit=2', undefined, reviewLogin.session.accessToken)).json();
+    assert.deepEqual(reviewHistory.entries.map((row) => row.revision), [8, 7]); assert.equal(reviewHistory.nextBefore, 7);
+    const deniedRetired = await fetch(origin + '/v1/vault/retired', { headers: { 'X-AuthBox-Fixture': fixtureToken,
+      Authorization: `Bearer ${reviewLogin.session.accessToken}` }, redirect: 'error', signal: AbortSignal.timeout(30000) });
+    assert.equal(deniedRetired.status, 403); await deniedRetired.body?.cancel();
+    await request('/v1/auth/logout', {}, reviewLogin.session.accessToken);
+    results.push('Concurrent manager update invalidates review without altering the original pending request',
+      'Confirmed resolution commits a fresh operation and preserves local and both remote candidates',
+      'Historical removed account restores explicitly as revision 8 using current wraps; Node verifies exact business data',
+      'Reader receives scoped paged history and is refused retired identity metadata');
     return { checks: results.length, results, model: 'PHB110', api: 35,
-      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test; CloudRegistrationTest: 1 test passed' };
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test; CloudRegistrationTest: 1 test; CloudSyncReviewTest: 1 test passed' };
   } catch (error) {
     originalFailure = error;
     throw error;
@@ -162,7 +197,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       try { await instrument('CloudCleanupTest'); }
       catch (error) { if (!originalFailure) throw error; console.log('Android fixture cleanup failed; original failure preserved'); }
     }
-    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json']); }
+    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json', 'cloud-review-result.json']); }
     catch (error) { if (!originalFailure) throw error; console.log('Android output cleanup pending; original failure preserved'); }
   }
 }
