@@ -7,10 +7,10 @@ import { inspectBackup, restoreBackup, createBackup } from '../../packages/proto
 import { validateVaultEntities } from '../../packages/protocol/src/business.mjs';
 import { sealRecord } from '../../packages/protocol/src/vault.mjs';
 
-export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite }) {
+export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite, registrationInvite }) {
   await checkDevice();
   const suffix = randomBytes(5).toString('hex');
-  const config = { origin, fixtureToken, invite, managementInvite, username: `android_${suffix}`, namespace: `authbox.test.cloud.${suffix}`,
+  const config = { origin, fixtureToken, invite, managementInvite, registrationInvite, username: `android_${suffix}`, namespace: `authbox.test.cloud.${suffix}`,
     password: 'AuthBox Android synthetic login 🔐', vaultPassword: 'AuthBox Android synthetic vault 🔐' };
   const configPath = 'apps/android/app/build/test-fixtures/cloud-config.json';
   const request = async (path, body, token) => {
@@ -121,8 +121,38 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
     await request('/v1/auth/logout', {}, backupLogin.session.accessToken);
     results.push('Password and recovery wraps commit as one draft while entity ciphertext stays unchanged',
       'Android recovery download and independent Node decryption verify the new wraps and reject the old password');
+    await instrument('CloudRegistrationTest');
+    const copied = await artifact('cloud-registration-result.json');
+    const kit = JSON.parse(copied.kit);
+    const source = await restoreBackup(copied.source, { purpose: 'recovery', secret: exported.recoveryKey });
+    try {
+      const fresh = await restoreBackup(copied.registered, { purpose: 'recovery', secret: kit.vaultRecoveryKey });
+      try {
+        assert.notEqual(fresh.vaultId, source.vaultId); assert.notDeepEqual(fresh.vmk, source.vmk);
+        assert.equal(fresh.revision, 1); assert.equal(kit.vaultId, fresh.vaultId);
+        assert.equal(kit.origin, origin); assert.equal(kit.username, config.username + '_copy'); assert.equal(kit.accountRecoveryCodes.length, 8);
+        assert.deepEqual(fresh.entities.map(({ metadata, payload }) => [metadata.id, payload]), source.entities.map(({ metadata, payload }) => [metadata.id, payload]));
+      } finally { fresh.vmk.fill(0); }
+    } finally { source.vmk.fill(0); }
+    const copyLogin = await (await request('/v1/auth/login', { username: config.username + '_copy', password: config.password + ' copied',
+      deviceName: 'Copied vault observer', publicKey: null })).json();
+    const copyBackup = await (await request('/v1/vault/snapshot', undefined, copyLogin.session.accessToken)).text();
+    assert.equal(copyBackup, copied.backup);
+    const syncedCopy = await restoreBackup(copyBackup, { purpose: 'password', secret: config.vaultPassword + ' copied' });
+    try {
+      validateVaultEntities(syncedCopy.entities); assert.equal(syncedCopy.revision, 2); assert.equal(syncedCopy.entities.length, 6);
+      assert.equal(syncedCopy.entities.find(({ metadata }) => metadata.type === 'group').payload.name, 'Copied cloud workspace');
+    } finally { syncedCopy.vmk.fill(0); }
+    await request('/v1/auth/logout', {}, copyLogin.session.accessToken);
+    const originalLogin = await (await request('/v1/auth/login', { username: config.username + '_m', password: config.password + ' recovered',
+      deviceName: 'Unchanged source observer', publicKey: null })).json();
+    assert.equal(await (await request('/v1/vault/snapshot', undefined, originalLogin.session.accessToken)).text(), backupAfterWrap);
+    await request('/v1/auth/logout', {}, originalLogin.session.accessToken);
+    results.push('Offline copy registers a fresh manager vault with independent keys and identical business data',
+      'Recovery kit matches the new account; reader downloads it and independent Node verifies subsequent sync',
+      'Original cloud snapshot and local offline copy remain unchanged');
     return { checks: results.length, results, model: 'PHB110', api: 35,
-      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test passed' };
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test; CloudRegistrationTest: 1 test passed' };
   } catch (error) {
     originalFailure = error;
     throw error;
@@ -132,7 +162,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       try { await instrument('CloudCleanupTest'); }
       catch (error) { if (!originalFailure) throw error; console.log('Android fixture cleanup failed; original failure preserved'); }
     }
-    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json']); }
+    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json']); }
     catch (error) { if (!originalFailure) throw error; console.log('Android output cleanup pending; original failure preserved'); }
   }
 }

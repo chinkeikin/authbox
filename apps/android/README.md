@@ -81,7 +81,7 @@ adb -s <PHB110序列号> shell am instrument -w -e class com.authbox.android.Key
 
 `npm run verify:android:app:registration` 验证存储及 Node 互通，`npm run verify:android:app:registration-ui` 验证真实界面、ContentResolver 与导出结果。选择器测试返回公开测试 URI，不能代替最终真实文件与设备丢失恢复演练。结果见[离线副本接入记录](../../docs/android-registration-results.md)。
 
-`npm run verify:android:app:cloud` 需要本机忽略的 `.env.cloudflare`、`JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、已授权测试区 `AUTHBOX_CF_TEST_ZONE` 和空闲子域 `AUTHBOX_CF_TEST_HOST`。它确认免费套餐，创建临时 SQLite DO 和 Worker，生成仅测试 APK 可读的配置，三轮联调后清理资源。`--cleanup --android` 可按同一报告重试云端清理。测试 APK 不应作为日用安装；联调完成后可卸载 `com.authbox.android.test`。
+`npm run verify:android:app:cloud` 需要本机忽略的 `.env.cloudflare`、`JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、已授权测试区 `AUTHBOX_CF_TEST_ZONE` 和空闲子域 `AUTHBOX_CF_TEST_HOST`。它确认免费套餐，创建临时 SQLite DO 和 Worker，生成仅测试 APK 可读的配置，执行账号、管理、封装与离线副本接入联调后清理资源。`--cleanup --android` 可按同一报告重试云端清理。测试 APK 不应作为日用安装；联调完成后可卸载 `com.authbox.android.test`。
 
 本步骤固定已验证的工具链与依赖；Lint 关于较新目标 SDK 和依赖版本的提醒保留，发布前另行升级与兼容性验证。实际结果见 [真机记录](../../docs/android-results.md)。
 

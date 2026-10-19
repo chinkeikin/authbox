@@ -10,7 +10,7 @@ import { serverProfile } from '../feasibility/fixtures.mjs';
 import { sha256, utf8 } from '../../packages/protocol/src/encoding.mjs';
 const durableMarker = 'api-v1';
 const androidMode = process.argv.includes('--android');
-const invites = Array.from({ length: 2 }, () => randomBytes(32).toString('base64url'));
+const invites = Array.from({ length: androidMode ? 3 : 2 }, () => randomBytes(32).toString('base64url'));
 const inviteHashes = await Promise.all(invites.map((invite) => sha256(utf8(invite))));
 
 const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
@@ -214,7 +214,7 @@ async function verify() {
   }
   if (androidMode) {
     const { runAndroidCloud } = await import('../android/run-cloud.mjs');
-    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0], managementInvite: invites[1] });
+    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0], managementInvite: invites[1], registrationInvite: invites[2] });
     report.android = result;
     report.checks = result.checks;
     report.runtimeChecksPassed = true;
