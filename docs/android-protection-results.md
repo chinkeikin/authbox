@@ -26,3 +26,11 @@
 - 真实强生物识别、PIN/图案/密码认证成功、认证中的 Home/熄屏/重建、设备密钥失效和关闭系统安全锁屏的场景未实测。认证密钥正向前置测试 `QuickUnlockStoreTest` 保留，但本轮不计为通过。
 
 云端和密码哈希实现未改动，保持 Workers Free + SQLite Durable Objects；登录 Argon2id 32 MiB / t=3 / p=1、保险库 64 MiB / t=3 / p=1。
+
+## 最终回归与收尾
+
+- 最终提交版本执行 16 项检查全部通过：设备条件检查 1 项、`LocalProtectionTest` 4 项（20.530 秒）、`ClipboardTimerTest` 1 项（19.940 秒）、`QuickUnlockUnavailableTest` 2 项（13.698 秒）、`AutoSyncScreenTest` 5 项（40.739 秒）、`ImportScreenTest` 2 项（16.912 秒）、`ScreenTest` 1 项（6.644 秒）。这 16 项不包含真实系统认证成功测试。
+- 另有账号管理 2 项、安全界面 2 项、恢复材料界面 2 项、冲突历史界面 3 项回归通过，独立 Node 验证实际恢复材料、复制内容、历史副本和恢复 ID；没有执行摄像头实扫、真实迁移或故障恢复演练。
+- 构建与 Lint 通过，0 错误、7 个原有版本提醒。未新增依赖、云端部署或资源；没有修改手机系统锁屏、认证和休眠配置。测试窗口保持亮屏在测试结束后移除。
+- 合成输出已清理，最终报告明确保存 `positiveAuthenticationVerified=false`。PHB110 安装的开发 APK SHA256 与本机构建一致；测试 APK 卸载，开发应用保留并重新打开。
+- 后续优先补齐 VMK 轮换与全量重新加密。系统认证正向实测、Chrome、Google、NAS 及其他后置验收见[第一版剩余清单](remaining-work.md)。
