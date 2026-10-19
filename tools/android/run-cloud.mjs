@@ -105,8 +105,24 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       'Platform password changes preserve encrypted vault and invalidate the old password',
       'Rotated account recovery code works once and revokes all old devices',
       'Independent Node observer logs in with the recovered password and downloads identical ciphertext');
+    await instrument('CloudBackupTest');
+    const exported = await artifact('cloud-backup-result.json');
+    const backupLogin = await (await request('/v1/auth/login', { username: config.username + '_m', password: config.password + ' recovered',
+      deviceName: 'Backup observer', publicKey: null })).json();
+    const backupAfterWrap = await (await request('/v1/vault/snapshot', undefined, backupLogin.session.accessToken)).text();
+    assert.equal(backupAfterWrap, exported.backup);
+    assert.deepEqual((await inspectBackup(backupAfterWrap)).entities, (await inspectBackup(managementBackup)).entities);
+    for (const [purpose, secret] of [['password', config.vaultPassword + ' changed'], ['recovery', exported.recoveryKey]]) {
+      const opened = await restoreBackup(backupAfterWrap, { purpose, secret });
+      try { validateVaultEntities(opened.entities); assert.equal(opened.revision, 3); assert.equal(opened.entities.length, 6); }
+      finally { opened.vmk.fill(0); }
+    }
+    await assert.rejects(restoreBackup(backupAfterWrap, { purpose: 'password', secret: config.vaultPassword }));
+    await request('/v1/auth/logout', {}, backupLogin.session.accessToken);
+    results.push('Password and recovery wraps commit as one draft while entity ciphertext stays unchanged',
+      'Android recovery download and independent Node decryption verify the new wraps and reject the old password');
     return { checks: results.length, results, model: 'PHB110', api: 35,
-      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test passed' };
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test passed' };
   } catch (error) {
     originalFailure = error;
     throw error;
@@ -116,6 +132,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       try { await instrument('CloudCleanupTest'); }
       catch (error) { if (!originalFailure) throw error; console.log('Android fixture cleanup failed; original failure preserved'); }
     }
-    await removeArtifacts(['cloud-result.json']);
+    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json']); }
+    catch (error) { if (!originalFailure) throw error; console.log('Android output cleanup pending; original failure preserved'); }
   }
 }

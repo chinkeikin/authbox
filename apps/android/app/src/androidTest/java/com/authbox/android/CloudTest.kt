@@ -1,5 +1,7 @@
 package com.authbox.android
 
+import android.content.Intent
+import android.view.WindowManager
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -19,7 +21,11 @@ class CloudTest {
         val phase = InstrumentationRegistry.getArguments().getString("phase", "write")
         val password = c.getString("password")
         val vaultPassword = c.getString("vaultPassword")
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        instrumentation.runOnMainSync { activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        fun stage(value: String) { android.util.Log.i("AuthBoxCloudTest", "$phase: $value") }
         try {
+            stage("begin")
             if (phase == "write") {
                 val recovery = repository.prepareRegistration(vaultPassword)
                 assertEquals(8, recovery.second.size)
@@ -66,15 +72,20 @@ class CloudTest {
             } else if (phase == "read") {
                 assertFalse(repository.isUnlocked()); assertTrue(repository.hasPending())
                 repository.unlock(vaultPassword)
+                stage("pending-unlocked")
                 assertFalse(repository.entities().first { it.type == "account" }.payload.getBoolean("favorite"))
                 repository.upload()
+                stage("pending-uploaded")
                 assertFalse(repository.hasPending()); assertEquals(3L, repository.revision())
                 repository.download(vaultPassword)
                 assertFalse(repository.entities().first { it.type == "account" }.payload.getBoolean("favorite"))
                 repository.logout()
+                stage("logged-out")
                 val denied = assertThrows(ApiFailure::class.java) { repository.login("Synthetic wrong password!", true) }
                 assertEquals(401, denied.status)
+                stage("wrong-password-rejected")
                 repository.login(password, true)
+                stage("logged-in")
                 assertEquals("manager", repository.role())
                 repository.download(vaultPassword)
                 val edits = repository.entities()
@@ -103,7 +114,11 @@ class CloudTest {
                 assertThrows(Exception::class.java) { repository.download(vaultPassword) }
                 repository.lock()
             }
-        } finally { repository.dispose() }
+            stage("complete")
+        } finally {
+            repository.dispose()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
     }
 
     @Test fun refusesForeignSigningChallenge() {
