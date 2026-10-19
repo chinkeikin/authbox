@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 @Composable internal fun VaultManagementScreen(state: ScreenState, onLock: () -> Unit, onSync: () -> Unit,
-    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, importContent: (@Composable () -> Unit)? = null) {
+    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, settingsLabel: String = "账号与设备", importContent: (@Composable () -> Unit)? = null) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf<String?>(null) }
     var tag by remember { mutableStateOf<String?>(null) }
@@ -59,12 +59,12 @@ import org.json.JSONObject
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
-            if (onSettings != null) TextButton(onSettings) { Text("账号与设备") }
+            if (onSettings != null) TextButton(onSettings) { Text(settingsLabel) }
         }
-        Text(if (state.pending) "修改已加密保存在本机，等待同步" else "云端版本 ${state.revision ?: "—"}")
+        Text(if (state.role == "offline") "离线副本 · 本机版本 ${state.revision ?: "—"}" else if (state.pending) "修改已加密保存在本机，等待同步" else "云端版本 ${state.revision ?: "—"}")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onLock) { Text("锁定") }
-            Button(onSync, enabled = !state.busy && state.pending && state.role == "manager") { Text("同步修改") }
+            if (state.role != "offline") Button(onSync, enabled = !state.busy && state.pending && state.role == "manager") { Text("同步修改") }
             TextButton({ categories = true }, enabled = editable) { Text("分组与标签") }
         }
         Text(state.message)
@@ -78,7 +78,7 @@ import org.json.JSONObject
             FilterChip(trash, { trash = !trash; selected = emptySet() }, label = { Text("回收站") })
         }
         LazyColumn(Modifier.weight(1f).testTag("accounts"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.role == "manager") item(key = "actions") {
+            if (state.role in setOf("manager", "offline")) item(key = "actions") {
                 Column {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button({ adding = true }, enabled = editable) { Text("添加账号") }
@@ -93,7 +93,7 @@ import org.json.JSONObject
                 Card(Modifier.fillMaxWidth().testTag("account-${entry.id}")) {
                     Column(Modifier.padding(12.dp)) {
                         Row {
-                            if (state.role == "manager") Checkbox(entry.id in selected, { checked -> selected = if (checked) selected + entry.id else selected - entry.id }, enabled = editable)
+                            if (state.role in setOf("manager", "offline")) Checkbox(entry.id in selected, { checked -> selected = if (checked) selected + entry.id else selected - entry.id }, enabled = editable)
                             Column(Modifier.weight(1f)) {
                                 Text("${groupNames[p.optString("groupId")] ?: "未分组"} · ${p.getString("name").ifBlank { p.getString("issuer") }}")
                                 Text(p.getString("account"))
@@ -111,7 +111,7 @@ import org.json.JSONObject
                             val seconds = p.getLong("period") - System.currentTimeMillis() / 1000 % p.getLong("period")
                             Text("${seconds} 秒后刷新")
                         }
-                        if (state.role == "manager") Row {
+                        if (state.role in setOf("manager", "offline")) Row {
                             if (trash) TextButton({ edit { VaultEditor.bulk(it, setOf(entry.id), trash = false) } }, enabled = editable) { Text("恢复账号") }
                             else {
                                 TextButton({ accountEditor = entry }, enabled = editable) { Text("编辑") }

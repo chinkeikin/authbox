@@ -19,7 +19,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8).size in 8..256
 
-@Composable private fun CloseOnBackground(close: () -> Unit) {
+@Composable internal fun CloseOnBackground(close: () -> Unit) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val latest by rememberUpdatedState(close)
     DisposableEffect(lifecycle) {
@@ -36,7 +36,7 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
 
 @Composable internal fun AccountSecurityScreen(state: ScreenState, back: () -> Unit, refresh: () -> Unit,
     update: (String, Boolean) -> Unit, changePassword: (String, String) -> Unit,
-    generate: () -> Unit, rotate: (Boolean) -> Unit) {
+    generate: () -> Unit, rotate: (Boolean) -> Unit, onBackup: (() -> Unit)? = null) {
     var password by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<Pair<DeviceInfo, Boolean>?>(null) }
     var saved by remember { mutableStateOf(false) }
@@ -50,6 +50,7 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
         Text(state.message)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.weight(1f).testTag("security"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (onBackup != null) item { OutlinedButton(onBackup) { Text("备份与保险库") } }
             item {
                 Text("本机设备 ID：${state.deviceId ?: "请先登录"}")
                 Text("权限：${when (state.role) { "manager" -> "管理设备"; "reader" -> "只读设备"; else -> "未登录" }}")

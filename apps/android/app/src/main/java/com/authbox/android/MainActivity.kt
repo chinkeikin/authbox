@@ -25,15 +25,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : ComponentActivity() {
     private val model: AuthBoxViewModel by viewModels()
+    private val backups: BackupViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AuthBoxScreen(model) } } }
+        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AuthBoxScreen(model, backups) } } }
     }
 }
 
-@Composable private fun AuthBoxScreen(model: AuthBoxViewModel) {
+@Composable private fun AuthBoxScreen(model: AuthBoxViewModel, backups: BackupViewModel) {
     val state by model.state.collectAsState()
+    val backupState by backups.state.collectAsState()
     var origin by remember { mutableStateOf(model.initialOrigin) }
     var username by remember { mutableStateOf(model.initialUsername) }
     var password by remember { mutableStateOf("") }
@@ -44,6 +46,16 @@ class MainActivity : ComponentActivity() {
     var saved by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var recovery by remember { mutableStateOf(false) }
+    var recoveryUnlock by remember { mutableStateOf(false) }
+    var files by remember { mutableStateOf(false) }
+    var local by remember { mutableStateOf(false) }
+    var exportPayload by remember { mutableStateOf<String?>(null) }
+    val document = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) backups.selectFile(uri) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.authbox.backup+json")) { uri ->
+        val payload = exportPayload; exportPayload = null
+        if (uri != null && payload != null) backups.writeExport(uri, payload)
+        else backups.exportNotCompleted(uri == null)
+    }
     var pendingImages by remember { mutableStateOf(emptyList<Uri>()) }
     val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> pendingImages = selected }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -51,24 +63,41 @@ class MainActivity : ComponentActivity() {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 password = ""; vaultPassword = ""; invite = ""; saved = false
-                model.onHidden()
-            } else if (event == Lifecycle.Event.ON_RESUME) model.onVisible()
+                model.onHidden(); backups.onHidden()
+            } else if (event == Lifecycle.Event.ON_RESUME) { model.onVisible(); backups.onVisible() }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(Unit) { while (true) { delay(1000); model.tick() } }
+    LaunchedEffect(Unit) { while (true) { delay(1000); model.tick(); backups.tick() } }
     LaunchedEffect(state.unlocked, pendingImages) {
         if (state.unlocked && pendingImages.isNotEmpty()) {
             val selected = pendingImages; pendingImages = emptyList()
             model.importImages(origin, username, selected)
         }
     }
+    LaunchedEffect(state.preparedExport, backupState.preparedExport) {
+        val payload = state.preparedExport ?: backupState.preparedExport
+        if (payload != null && exportPayload == null) {
+            exportPayload = payload
+            model.clearBackupExport(); backups.clearExport()
+            val header = VaultCrypto.inspect(payload)
+            export.launch("authbox-${header.getString("vaultId")}-r${header.getLong("revision")}-${System.currentTimeMillis()}.authbox-backup")
+        }
+    }
+    if (files) {
+        if (local && backupState.local.unlocked) {
+            VaultManagementScreen(backupState.local, backups::lock, {}, backups::edit, { local = false }, "备份与保险库")
+        } else BackupScreen(state, backupState, model, backups, origin, username,
+            { backups.lock(); files = false; local = false }, { document.launch(arrayOf("*/*")) }, { model.lock(); local = true })
+        return
+    }
     if (settings) {
         AccountSecurityScreen(state, { settings = false }, { model.loadDevices(origin, username) },
             { id, approve -> model.updateDevice(origin, username, id, approve) },
             { old, next -> model.changePassword(origin, username, old, next) },
-            { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) })
+            { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) },
+            { settings = false; files = true })
         return
     }
     if (state.unlocked) {
@@ -83,6 +112,7 @@ class MainActivity : ComponentActivity() {
         Text("Android 开发版", style = MaterialTheme.typography.labelLarge)
         TextButton({ settings = true }, enabled = !state.busy) { Text("账号与设备") }
         TextButton({ recovery = true }, enabled = !state.busy) { Text("用账号恢复码恢复") }
+        TextButton({ files = true }, enabled = !state.busy) { Text("备份与保险库") }
         if (pendingImages.isNotEmpty()) Text("已选择 ${pendingImages.size} 张图片，解锁后在本机解析；新的图片选择会替换当前导入预览。")
         OutlinedTextField(origin, { origin = it }, label = { Text("服务地址（https://…）") }, singleLine = true, enabled = !state.busy)
         OutlinedTextField(username, { username = it }, label = { Text("平台账号") }, singleLine = true, enabled = !state.busy)
@@ -95,11 +125,12 @@ class MainActivity : ComponentActivity() {
         Button(onClick = { val secret = password; password = ""; model.login(origin, username, secret, existing) }, enabled = !state.busy) { Text("登录") }
         if (state.role == "reader") Text("当前设备只有只读权限，需要已授权管理设备批准后重新登录。")
         if (state.role != null) Text("设备权限：${state.role} · 云端版本：${state.revision ?: "未下载"}")
-        OutlinedTextField(vaultPassword, { vaultPassword = it }, label = { Text("保险库密码（可离线解锁）") }, singleLine = true, enabled = !state.busy,
+        Row { Checkbox(recoveryUnlock, { recoveryUnlock = it; vaultPassword = "" }); Text("使用保险库恢复密钥 ABR1", Modifier.padding(top = 12.dp)) }
+        OutlinedTextField(vaultPassword, { vaultPassword = it }, label = { Text(if (recoveryUnlock) "保险库恢复密钥 ABR1" else "保险库密码（可离线解锁）") }, singleLine = true, enabled = !state.busy,
             visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; model.download(origin, username, secret) }, enabled = !state.busy && state.role != null && !state.pending) { Text("下载并解锁") }
-            OutlinedButton(onClick = { val secret = vaultPassword; vaultPassword = ""; model.unlock(origin, username, secret) }, enabled = !state.busy) { Text("离线解锁") }
+            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; model.download(origin, username, secret, if (recoveryUnlock) "recovery" else "password") }, enabled = !state.busy && state.role != null && !state.pending) { Text("下载并解锁") }
+            OutlinedButton(onClick = { val secret = vaultPassword; vaultPassword = ""; model.unlock(origin, username, secret, if (recoveryUnlock) "recovery" else "password") }, enabled = !state.busy) { Text("离线解锁") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { model.lock() }, enabled = !state.busy) { Text("锁定") }

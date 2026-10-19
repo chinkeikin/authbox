@@ -16,7 +16,7 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val unlocked: Boolean = false, val pending: Boolean = false, val revision: Long? = null,
     val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList(),
     val entities: List<VaultEntity> = emptyList(), val canEdit: Boolean = false,
-    val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList())
+    val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList(), val preparedExport: String? = null)
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -28,6 +28,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     @Volatile private var foreground = true
     private var imports = ImportSession()
     @Volatile private var devices = emptyList<DeviceInfo>()
+    @Volatile private var preparedExport: String? = null
 
     init {
         if (initialOrigin.isNotBlank() && initialUsername.isNotBlank()) perform(initialOrigin, initialUsername) { null }
@@ -46,6 +47,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                         active?.dispose()
                         synchronized(this@AuthBoxViewModel) { imports = ImportSession() }
                         devices = emptyList()
+                        preparedExport = null
                         active = AccountRepository(getApplication(), ApiClient(origin), username)
                         repository = active
                         preferences.edit().putString("origin", origin).putString("username", username).apply()
@@ -91,13 +93,25 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasLocalChanges(), revision = active.revision(), rows = rows,
                 entities = entities, canEdit = active.role() == "manager" && !active.hasPending(), deviceId = active.deviceId(),
                 devices = if (foreground && active.role() == "manager") devices else emptyList(),
+                preparedExport = preparedExport,
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
 
     fun login(origin: String, user: String, password: String, existing: Boolean) = perform(origin, user) { it.login(password, existing); null }
-    fun download(origin: String, user: String, password: String) = perform(origin, user) { it.download(password); null }
-    fun unlock(origin: String, user: String, password: String) = perform(origin, user) { it.unlock(password); null }
+    fun download(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user) { it.download(password, purpose); null }
+    fun unlock(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user) { it.unlock(password, purpose); null }
+    fun prepareBackupExport(origin: String, user: String) = perform(origin, user) { preparedExport = it.exportBackup(); null }
+    fun clearBackupExport() { preparedExport = null; mutable.value = mutable.value.copy(preparedExport = null) }
+    fun rewrap(origin: String, user: String, secret: String, purpose: String, saved: Boolean = true) = perform(origin, user) { it.rewrap(secret, purpose, saved); null }
+    fun prepareVaultRecoveryKey(origin: String, user: String) = perform(origin, user) {
+        require(it.role() == "manager" && it.isUnlocked() && !it.hasPending()) { "请先解锁管理设备并处理待确认上传" }
+        listOf(VaultCrypto.newRecoveryKey())
+    }
+    fun confirmVaultRecoveryKey(origin: String, user: String, saved: Boolean) {
+        val key = mutable.value.recovery.singleOrNull()?.takeIf { it.startsWith("ABR1-") }
+        perform(origin, user) { it.rewrap(requireNotNull(key) { "请重新生成保险库恢复密钥" }, "recovery", saved); null }
+    }
     fun upload(origin: String, user: String) = perform(origin, user) { it.upload(); null }
     fun refresh(origin: String, user: String) = perform(origin, user) { it.refresh(); null }
     fun logout(origin: String, user: String) = perform(origin, user) { it.logout(); null }

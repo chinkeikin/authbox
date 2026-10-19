@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries>
+        <provider android:authorities="com.authbox.android.test.backup" />
         <provider android:authorities="com.authbox.android.test.qr" />
     </queries>
 </manifest>

@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { restoreBackup } from '../../packages/protocol/src/backup.mjs';
 import { validateVaultEntities } from '../../packages/protocol/src/business.mjs';
 
@@ -18,7 +19,16 @@ export async function device(...args) {
 export async function checkDevice() { assert.equal((await device('shell', 'getprop', 'ro.product.model')).trim(), 'PHB110'); }
 export async function install(testOnly = false) {
   for (const file of testOnly ? ['androidTest/debug/app-debug-androidTest.apk'] : ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']) {
-    assert.match(await device('install', '-r', resolve('apps/android/app/build/outputs/apk', file)), /Success/);
+    const local = resolve('apps/android/app/build/outputs/apk', file);
+    const packageName = file.startsWith('androidTest/') ? 'com.authbox.android.test' : 'com.authbox.android';
+    const expected = createHash('sha256').update(await readFile(local)).digest('hex');
+    const installed = (await device('shell', 'pm', 'path', packageName).catch(() => '')).trim().replace(/^package:/, '');
+    if (/^\/data\/app\/[A-Za-z0-9_=/+~.-]+\/base\.apk$/.test(installed)
+      && (await device('shell', 'sha256sum', installed)).split(/\s/)[0] === expected) {
+      console.log(`${packageName}: installed APK matches build; skipping reinstall`);
+      continue;
+    }
+    assert.match(await device('install', '-r', local), /Success/);
   }
 }
 export async function instrument(name, phase = 'write', timeoutMs = 180000) {

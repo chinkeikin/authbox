@@ -5,6 +5,7 @@ import { rfcTotpVectors } from '../../packages/protocol/test/vectors.mjs';
 
 const fixture = await makeBackupFixture();
 await mkdir('apps/android/app/build/test-fixtures', { recursive: true });
+await writeFile('apps/android/app/build/test-fixtures/backup.authbox-backup', fixture.backup);
 await writeFile('apps/android/app/build/test-fixtures/protocol.json', JSON.stringify({
   warning: 'PUBLIC SYNTHETIC TEST DATA ONLY', backup: fixture.backup, password: fixturePassword,
   recoveryKey: fixture.vault.recoveryKey, vmkHex: Buffer.from(fixture.vault.vmk).toString('hex'),

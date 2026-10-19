@@ -55,6 +55,20 @@ adb -s <PHB110序列号> shell am instrument -w -e class com.authbox.android.Key
 
 管理和导入的真实验证范围、Google 格式的合成测试边界见 [管理与扫码记录](../../docs/android-management-results.md)。正式 Google 应用导出、真实网站绑定与完整迁移验收仍需单独演练。
 
+## 备份与保险库
+
+锁定界面可直接进入“备份与保险库”，已解锁账号通过“账号与设备”进入。同步账号的导出要求 manager 且保险库已解锁，包含最新本机草稿和待确认快照，不代表这些内容已经在云端提交。更换保险库密码仅更新 VMK 密码封装；生成新 ABR1 恢复密钥后须勾选已离线保存，再确认更新，变更通过原加密草稿同步。原来的账号登录密码和设备身份不变。
+
+账号解锁界面勾选“使用保险库恢复密钥 ABR1”，可用恢复密钥离线解锁缓存，或在平台登录后下载并解密。ABR1 不作为账号登录凭据。旧文件仍使用导出时的密码或恢复密钥，不能靠更换封装撤回旧备份。
+
+从系统文件选择器打开 AuthBox 完整加密备份（最多 16 MiB），用保险库密码或 ABR1 解密校验并查看数量，确认后保存到独立离线副本。它不要求平台登录或旧手机 Keystore，也不覆盖同步账号。当前本机保留一份离线副本，已有副本时必须明确确认替换，并应先导出保存旧副本。
+
+离线副本支持本地取码、账号和分组标签管理及重新导出，修改只写入本机，页面不提供同步写入按钮；将该副本接入新平台账号的流程尚未实现。选文件和保存文件会按原规则触发后台锁定。导出前缓存的是密文，写入关闭后重新读取核对；取消、写入失败或进程重建丢失缓冲时不报告导出成功。
+
+`verify:android:app:fixtures` 同时生成测试备份文件。`npm run verify:android:app:backup` 运行 `BackupStoreTest` 并用 Node 独立验证封装与密文。`BackupFilesTest` 验证真实 ContentResolver，`BackupScreenTest` 用合成选择器结果验证界面，`CloudBackupTest` 验证封装更新后的同步与恢复密钥下载。测试 provider 只在测试 APK，不能作为日常文件接口；界面测试保留已有真实离线副本，有副本时跳过会替换它的测试。结果与边界见[备份记录](../../docs/android-backup-results.md)。
+
+测试安装前比对本机构建与手机 APK 的 SHA256，相同文件跳过重复安装；需要更新时仍走手机正常系统确认。摄像头实扫、真实迁移、故障恢复演练和发布验收按最新安排放在功能开发完成后。
+
 `npm run verify:android:app:cloud` 需要本机忽略的 `.env.cloudflare`、`JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、已授权测试区 `AUTHBOX_CF_TEST_ZONE` 和空闲子域 `AUTHBOX_CF_TEST_HOST`。它确认免费套餐，创建临时 SQLite DO 和 Worker，生成仅测试 APK 可读的配置，三轮联调后清理资源。`--cleanup --android` 可按同一报告重试云端清理。测试 APK 不应作为日用安装；联调完成后可卸载 `com.authbox.android.test`。
 
 本步骤固定已验证的工具链与依赖；Lint 关于较新目标 SDK 和依赖版本的提醒保留，发布前另行升级与兼容性验证。实际结果见 [真机记录](../../docs/android-results.md)。
