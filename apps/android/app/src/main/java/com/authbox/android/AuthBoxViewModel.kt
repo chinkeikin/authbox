@@ -9,11 +9,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.net.Uri
 
 data class AccountRow(val id: String, val title: String, val account: String, val group: String, val code: String, val favorite: Boolean)
 data class ScreenState(val busy: Boolean = false, val message: String = "请配置服务地址并登录", val role: String? = null,
     val unlocked: Boolean = false, val pending: Boolean = false, val revision: Long? = null,
-    val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList())
+    val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList(),
+    val entities: List<VaultEntity> = emptyList(), val canEdit: Boolean = false,
+    val importPreview: ImportPreview = ImportPreview())
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -23,6 +26,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     val state = mutable.asStateFlow()
     @Volatile private var repository: AccountRepository? = null
     @Volatile private var foreground = true
+    private var imports = ImportSession()
 
     init {
         if (initialOrigin.isNotBlank() && initialUsername.isNotBlank()) perform(initialOrigin, initialUsername) { null }
@@ -39,6 +43,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     var active = repository
                     if (active == null || active.api.origin != origin || active.username != username) {
                         active?.dispose()
+                        synchronized(this@AuthBoxViewModel) { imports = ImportSession() }
                         active = AccountRepository(getApplication(), ApiClient(origin), username)
                         repository = active
                         preferences.edit().putString("origin", origin).putString("username", username).apply()
@@ -57,6 +62,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                         else -> "服务暂时无法完成操作，请稍后重试"
                     }
                     is SyncConflict, is IllegalStateException -> error.message ?: "操作失败"
+                    is IllegalArgumentException -> error.message?.takeIf { it.any { char -> char.code > 127 } } ?: "数据或输入不符合协议，请检查参数"
                     is javax.crypto.AEADBadTagException -> "解锁失败：密码不正确或密文损坏"
                     is java.io.IOException -> "网络连接失败；本地待上传内容已保留"
                     else -> "数据或输入不符合协议，请检查地址、账号与参数"
@@ -65,7 +71,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             if (!foreground) withContext(Dispatchers.IO) { repository?.lock() }
             val snapshot = withContext(Dispatchers.IO) { readState() }
             mutable.value = if (foreground) snapshot.copy(message = message, recovery = materials ?: emptyList())
-                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), recovery = emptyList())
+                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), importPreview = ImportPreview())
         }
     }
 
@@ -79,7 +85,9 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                 AccountRow(it.id, p.getString("name").ifBlank { p.getString("issuer") }, p.getString("account"),
                     groups[p.optString("groupId")] ?: "未分组", VaultCrypto.totp(p), p.getBoolean("favorite"))
             }
-            ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasPending(), revision = active.revision(), rows = rows)
+            ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasLocalChanges(), revision = active.revision(), rows = rows,
+                entities = entities, canEdit = active.role() == "manager" && !active.hasPending(),
+                importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
 
@@ -97,24 +105,47 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         it.register(password, invite, saved); emptyList()
     }
     fun favorite(origin: String, user: String, id: String) = perform(origin, user) {
-        val entities = it.entities()
-        val account = entities.first { entry -> entry.id == id }
-        account.payload.put("favorite", !account.payload.getBoolean("favorite"))
-        it.stage(entities); it.upload(); null
+        it.edit { entries ->
+            val account = entries.first { entry -> entry.id == id }
+            account.payload.put("favorite", !account.payload.getBoolean("favorite"))
+        }; null
     }
 
+    fun edit(origin: String, user: String, operation: (MutableList<VaultEntity>) -> Unit) = perform(origin, user) { it.edit(operation); null }
+    fun importQr(origin: String, user: String, qr: String) = perform(origin, user) {
+        require(it.isUnlocked() && it.role() == "manager" && !it.hasPending())
+        val chunk = OtpImport.parse(qr)
+        synchronized(this) { require(foreground); imports.add(chunk) }; null
+    }
+    fun importImages(origin: String, user: String, images: List<Uri>) = perform(origin, user) {
+        require(it.isUnlocked() && it.role() == "manager" && !it.hasPending())
+        require(images.size in 1..100)
+        val chunks = mutableListOf<ImportChunk>()
+        for (image in images) for (raw in QrImages.read(getApplication(), image)) {
+            require(chunks.size < 100) { "本次最多读取 100 张二维码" }; chunks.add(OtpImport.parse(raw))
+        }
+        synchronized(this) { require(foreground); val session = ImportSession(); session.addAll(chunks); imports = session }; null
+    }
+    fun confirmImport(origin: String, user: String, keep: Boolean, skip: Boolean) = perform(origin, user) {
+        val session = synchronized(this) { imports }
+        it.edit { entries -> session.apply(entries, keep, skip) }
+        synchronized(this) { if (imports === session) imports = ImportSession() }; null
+    }
+    fun cancelImport() { synchronized(this) { imports = ImportSession() }; mutable.value = mutable.value.copy(importPreview = ImportPreview()) }
+
     fun lock() {
-        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), recovery = emptyList())
+        synchronized(this) { imports = ImportSession() }
+        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), importPreview = ImportPreview())
         viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
     }
     fun onHidden() { foreground = false; lock() }
     fun onVisible() { foreground = true }
     fun tick() {
         if (!foreground || mutable.value.busy || !mutable.value.unlocked) return
-        viewModelScope.launch {
-            val snapshot = withContext(Dispatchers.IO) { readState() }
-            if (foreground && !mutable.value.busy && mutable.value.unlocked) mutable.value = snapshot.copy(message = mutable.value.message)
-        }
+        val current = mutable.value
+        val accounts = current.entities.filter { it.type == "account" }.associateBy { it.id }
+        val rows = current.rows.map { row -> row.copy(code = accounts[row.id]?.let { VaultCrypto.totp(it.payload) } ?: "") }
+        mutable.value = current.copy(rows = rows)
     }
     override fun onCleared() {
         foreground = false

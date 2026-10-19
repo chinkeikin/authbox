@@ -59,9 +59,10 @@ class ScreenTest {
             compose.onNodeWithText("保险库密码（可离线解锁）").performScrollTo().performTextInput(fixture.getString("password"))
             compose.onNodeWithText("离线解锁").performScrollTo().performClick()
             compose.waitUntil(15000) { compose.onAllNodesWithText("fixture@example.invalid").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("fixture@example.invalid").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("fixture@example.invalid"))
+            compose.onNodeWithText("fixture@example.invalid").assertIsDisplayed()
             compose.onNodeWithText("工作 · 测试").assertExists()
-            compose.onNodeWithText("搜索账号或分组").performScrollTo().performTextInput("不存在的账号")
+            compose.onNodeWithText("搜索账号或分组").performTextInput("不存在的账号")
             compose.onNodeWithText("fixture@example.invalid").assertDoesNotExist()
             compose.onNodeWithText("搜索账号或分组").performTextClearance()
             compose.onNodeWithText("fixture@example.invalid").assertExists()

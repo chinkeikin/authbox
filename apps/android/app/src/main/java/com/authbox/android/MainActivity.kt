@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : ComponentActivity() {
     private val model: AuthBoxViewModel by viewModels()
@@ -39,7 +42,8 @@ class MainActivity : ComponentActivity() {
     var existing by remember { mutableStateOf(false) }
     var registration by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    var pendingImages by remember { mutableStateOf(emptyList<Uri>()) }
+    val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> pendingImages = selected }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -52,9 +56,23 @@ class MainActivity : ComponentActivity() {
         onDispose { lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(Unit) { while (true) { delay(1000); model.tick() } }
+    LaunchedEffect(state.unlocked, pendingImages) {
+        if (state.unlocked && pendingImages.isNotEmpty()) {
+            val selected = pendingImages; pendingImages = emptyList()
+            model.importImages(origin, username, selected)
+        }
+    }
+    if (state.unlocked) {
+        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }) {
+            ImportControls(state, state.importPreview, { model.importQr(origin, username, it) }, { images.launch("image/*") },
+                { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport)
+        }
+        return
+    }
     Column(Modifier.safeDrawingPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
         Text("Android 开发版", style = MaterialTheme.typography.labelLarge)
+        if (pendingImages.isNotEmpty()) Text("已选择 ${pendingImages.size} 张图片，解锁后在本机解析；新的图片选择会替换当前导入预览。")
         OutlinedTextField(origin, { origin = it }, label = { Text("服务地址（https://…）") }, singleLine = true, enabled = !state.busy)
         OutlinedTextField(username, { username = it }, label = { Text("平台账号") }, singleLine = true, enabled = !state.busy)
         OutlinedTextField(password, { password = it }, label = { Text("登录密码") }, singleLine = true, enabled = !state.busy,
@@ -83,22 +101,6 @@ class MainActivity : ComponentActivity() {
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Text(state.message)
-        if (state.unlocked) {
-            OutlinedTextField(query, { query = it }, label = { Text("搜索账号或分组") }, singleLine = true)
-            for (row in state.rows.filter { "${it.title} ${it.account} ${it.group}".contains(query, ignoreCase = true) }) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("${row.group} · ${row.title}")
-                        Text(row.account)
-                        Text(row.code, style = MaterialTheme.typography.headlineMedium)
-                        if (state.role == "manager") TextButton(onClick = { model.favorite(origin, username, row.id) }, enabled = !state.busy && !state.pending) {
-                            Text(if (row.favorite) "取消收藏并同步" else "收藏并同步")
-                        }
-                    }
-                }
-            }
-            if (state.rows.isEmpty()) Text("保险库暂无账号")
-        }
         HorizontalDivider()
         TextButton(onClick = { registration = !registration }, enabled = !state.busy) { Text("新建平台账号") }
         if (registration) {
