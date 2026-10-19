@@ -313,5 +313,17 @@ try {
   }
   await save();
 }
+if (cleanupOnly && !failure && report.cleanupVerified && report.runtimeChecksPassed) {
+  try {
+    report.accountAfter = await freeAccount();
+    report.freeTierRuntimeVerified = true;
+    if (report.failure) { report.recoveredFailure = report.failure; delete report.failure; }
+    report.recoveredAt = new Date().toISOString();
+  } catch (error) {
+    failure = error;
+    report.failure = redact(error.message);
+  }
+  await save();
+}
 console.log(JSON.stringify(report, null, 2));
 if (failure) process.exitCode = 1;

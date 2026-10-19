@@ -30,6 +30,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
     await buildTests();
     await install();
     installed = true;
+    await instrument('AutoSyncScreenTest', 'write', 240000);
     await instrument('CloudTest', 'write');
     const initial = await artifact('cloud-result.json');
     const restored = await restoreBackup(initial.backup, { purpose: 'recovery', secret: initial.recoveryKey });
@@ -186,8 +187,26 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       'Confirmed resolution commits a fresh operation and preserves local and both remote candidates',
       'Historical removed account restores explicitly as revision 8 using current wraps; Node verifies exact business data',
       'Reader receives scoped paged history and is refused retired identity metadata');
+    await instrument('CloudAutoSyncTest');
+    const automatic = await artifact('cloud-auto-sync-result.json');
+    const autoLogin = await (await request('/v1/auth/login', { username: config.username, password: config.password,
+      deviceName: 'Automatic sync observer', publicKey: null })).json();
+    assert.equal(await (await request('/v1/vault/snapshot', undefined, autoLogin.session.accessToken)).text(), automatic.backup);
+    const automaticCloud = await restoreBackup(automatic.backup, { purpose: 'recovery', secret: initial.recoveryKey });
+    const automaticDraft = await restoreBackup(automatic.draft, { purpose: 'recovery', secret: initial.recoveryKey });
+    try {
+      validateVaultEntities(automaticCloud.entities); validateVaultEntities(automaticDraft.entities);
+      assert.equal(automaticCloud.revision, 10); assert.equal(automaticDraft.revision, 10);
+      assert.equal(automaticCloud.entities.find(({ metadata }) => metadata.type === 'group').payload.name, 'Remote automated peer');
+      assert.equal(automaticDraft.entities.find(({ metadata }) => metadata.type === 'group').payload.name, 'Local auto conflict');
+      assert.equal(automaticCloud.entities.find(({ metadata }) => metadata.type === 'account').payload.notes, 'Automatic synchronization QA');
+    } finally { automaticCloud.vmk.fill(0); automaticDraft.vmk.fill(0); }
+    await request('/v1/auth/logout', {}, autoLogin.session.accessToken);
+    results.push('Unlocked Android commits without storing a password; reader authenticates newer snapshots with its in-memory VMK',
+      'Automatic preflight detects concurrent change and preserves the unfrozen local draft',
+      'Revoked reader is denied subsequent synchronization and independent Node verifies the final snapshot and retained draft');
     return { checks: results.length, results, model: 'PHB110', api: 35,
-      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test; CloudRegistrationTest: 1 test; CloudSyncReviewTest: 1 test passed' };
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test; CloudBackupTest: 1 test; CloudRegistrationTest: 1 test; CloudSyncReviewTest: 1 test; CloudAutoSyncTest: 1 test passed' };
   } catch (error) {
     originalFailure = error;
     throw error;
@@ -197,7 +216,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       try { await instrument('CloudCleanupTest'); }
       catch (error) { if (!originalFailure) throw error; console.log('Android fixture cleanup failed; original failure preserved'); }
     }
-    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json', 'cloud-review-result.json']); }
+    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json', 'cloud-review-result.json', 'cloud-auto-sync-result.json']); }
     catch (error) { if (!originalFailure) throw error; console.log('Android output cleanup pending; original failure preserved'); }
   }
 }
