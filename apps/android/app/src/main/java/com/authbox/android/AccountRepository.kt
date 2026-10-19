@@ -12,6 +12,8 @@ import javax.net.ssl.HttpsURLConnection
 
 class ApiFailure(val status: Int, val code: String) : Exception("服务请求失败（$status / $code）")
 class SyncConflict : Exception("云端已有新版本；本地待上传内容已保留，请处理冲突")
+class SyncUnlockRequired : Exception("云端主密钥已变化，请使用新密码或恢复密钥下载解锁；本地副本已保留")
+enum class SyncResult { CURRENT, PULLED, UPLOADED }
 
 open class ApiClient(val origin: String, private val headers: Map<String, String> = emptyMap()) {
     init {
@@ -109,6 +111,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun lock() { unlocked?.close(); unlocked = null; review?.close(); review = null }
     @Synchronized fun hasReview(): Boolean = state.has("review")
     @Synchronized fun hasConflict(): Boolean = state.optBoolean("conflictDetected")
+    @Synchronized fun canSync(): Boolean = state.has("auth") && !state.optBoolean("refreshUncertain") && isUnlocked() && !hasReview() && !hasConflict()
     @Synchronized fun reviewView(): ReviewView? = review?.view()
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(unlocked) { "请先解锁保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
 
@@ -472,6 +475,45 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
             number(response, "revision") == snapshot.getLong("revision") && response.getString("digest") == snapshot.getString("digest"))
         save(state.copy().put("backup", pending.getString("backup")).apply { remove("pending"); remove("conflictDetected") })
         unlocked?.snapshot = snapshot
+    }
+
+    @Synchronized fun synchronize(): SyncResult {
+        require(canSync()) { "请先解锁并处理会话、冲突或比较" }
+        if (hasPending()) {
+            upload()
+            return SyncResult.UPLOADED
+        }
+        val prior = VaultCrypto.inspect(state.getString("backup"))
+        val head = JSONObject(api.request("/v1/vault/head", access = freshAccess()))
+        fields(head, "vaultId", "revision", "keyGeneration")
+        val revision = number(head, "revision")
+        val generation = number(head, "keyGeneration")
+        require(text(head, "vaultId") == prior.getString("vaultId") && revision >= prior.getLong("revision") &&
+            generation >= prior.getLong("keyGeneration") && (revision != prior.getLong("revision") || generation == prior.getLong("keyGeneration"))) {
+            "云端版本回退或保险库身份变化"
+        }
+        if (hasLocalChanges()) {
+            require(role() == "manager") { "当前设备只有只读权限" }
+            if (revision != prior.getLong("revision")) {
+                save(state.copy().put("conflictDetected", true))
+                throw SyncConflict()
+            }
+            upload()
+            return SyncResult.UPLOADED
+        }
+        if (revision == prior.getLong("revision")) return SyncResult.CURRENT
+        if (generation != prior.getLong("keyGeneration")) throw SyncUnlockRequired()
+        val encoded = api.request("/v1/vault/snapshot?revision=$revision", access = freshAccess())
+        require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "服务响应过大" }
+        val header = VaultCrypto.inspect(encoded)
+        checkRemote(header)
+        require(header.getLong("revision") == revision && header.getLong("keyGeneration") == generation) { "云端快照与版本检查不一致" }
+        val opened = VaultCrypto.authenticate(header, requireNotNull(unlocked).vmk)
+        try {
+            save(state.copy().put("backup", encoded))
+            lock(); unlocked = opened
+        } catch (error: Throwable) { opened.close(); throw error }
+        return SyncResult.PULLED
     }
 
     @Synchronized fun logout() {
