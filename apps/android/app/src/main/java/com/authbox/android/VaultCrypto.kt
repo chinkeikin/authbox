@@ -177,23 +177,41 @@ object VaultCrypto {
         return canonical(body).also { inspect(it) }
     }
 
+    fun newRecoveryKey(): String {
+        val raw = randomBytes(32)
+        try { return "ABR1-" + Base32.toBase32String(raw).trimEnd('=') + "-" + sha(raw).take(8) }
+        finally { raw.fill(0) }
+    }
+
+    private fun wrap(vmk: ByteArray, vaultId: String, generation: Long, purpose: String, secret: String): JSONObject {
+        require(purpose in setOf("password", "recovery"))
+        val kdf = if (purpose == "password") obj("name" to "argon2id", "version" to 19,
+            "memoryKiB" to 65536, "iterations" to 3, "parallelism" to 1, "hashBytes" to 32, "salt" to b64(randomBytes(16)))
+            else obj("name" to "HKDF-SHA256", "info" to "AuthBox/v1/vmk-recovery", "salt" to b64(randomBytes(32)))
+        val value = obj("version" to 1, "vaultId" to vaultId, "keyGeneration" to generation, "purpose" to purpose,
+            "kdf" to kdf, "nonce" to b64(randomBytes(12)))
+        val key = derive(value, secret)
+        try { return value.put("ciphertext", b64(crypt(key, value, true, vmk))) }
+        finally { key.fill(0) }
+    }
+
+    fun rewrap(vault: OpenVault, secret: String, purpose: String, revision: Long): String {
+        val candidate = OpenVault(vault.vmk.copyOf(), vault.snapshot.copy(), vault.entities.map { it.copy(payload = it.payload.copy()) }.toMutableList())
+        try {
+            val header = candidate.snapshot
+            header.getJSONObject("wraps").put(purpose, wrap(candidate.vmk, header.getString("vaultId"), header.getLong("keyGeneration"), purpose, secret))
+            return snapshot(candidate, revision)
+        } finally { candidate.close() }
+    }
+
     fun create(password: String): NewVault {
         canonical(password); require(password.toByteArray(Charsets.UTF_8).size in 8..1024)
-        val raw = randomBytes(32)
-        val recovery = "ABR1-" + Base32.toBase32String(raw).trimEnd('=') + "-" + sha(raw).take(8)
-        raw.fill(0)
+        val recovery = newRecoveryKey()
         val vmk = randomBytes(32); val id = UUID.randomUUID().toString()
         try {
             val wraps = JSONObject()
             for (purpose in listOf("password", "recovery")) {
-                val kdf = if (purpose == "password") obj("name" to "argon2id", "version" to 19,
-                    "memoryKiB" to 65536, "iterations" to 3, "parallelism" to 1, "hashBytes" to 32, "salt" to b64(randomBytes(16)))
-                    else obj("name" to "HKDF-SHA256", "info" to "AuthBox/v1/vmk-recovery", "salt" to b64(randomBytes(32)))
-                val wrap = obj("version" to 1, "vaultId" to id, "keyGeneration" to 1, "purpose" to purpose,
-                    "kdf" to kdf, "nonce" to b64(randomBytes(12)))
-                val key = derive(wrap, if (purpose == "password") password else recovery)
-                try { wrap.put("ciphertext", b64(crypt(key, wrap, true, vmk))) } finally { key.fill(0) }
-                wraps.put(purpose, wrap)
+                wraps.put(purpose, wrap(vmk, id, 1, purpose, if (purpose == "password") password else recovery))
             }
             val vault = OpenVault(vmk.copyOf(), obj("vaultId" to id, "keyGeneration" to 1, "wraps" to wraps, "entities" to JSONArray()), mutableListOf())
             vault.snapshot = inspect(snapshot(vault, 1))

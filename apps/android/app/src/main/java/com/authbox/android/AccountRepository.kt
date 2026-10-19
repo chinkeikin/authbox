@@ -315,10 +315,10 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         }
     }
 
-    @Synchronized fun download(vaultPassword: String) {
+    @Synchronized fun download(vaultPassword: String, purpose: String = "password") {
         require(!hasLocalChanges()) { "本地存在待上传内容，请先完成上传或处理冲突" }
         val encoded = api.request("/v1/vault/snapshot", access = freshAccess())
-        val opened = VaultCrypto.restore(encoded, vaultPassword)
+        val opened = VaultCrypto.restore(encoded, vaultPassword, purpose)
         try {
             val prior = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it) }
             require(prior == null || (prior.getString("vaultId") == opened.snapshot.getString("vaultId") &&
@@ -332,11 +332,31 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         } catch (error: Throwable) { opened.close(); throw error }
     }
 
-    @Synchronized fun unlock(vaultPassword: String) {
+    @Synchronized fun unlock(vaultPassword: String, purpose: String = "password") {
         val encoded = state.optString("draft").takeIf { it.isNotEmpty() }
             ?: state.optJSONObject("pending")?.getString("backup") ?: state.getString("backup")
-        val opened = VaultCrypto.restore(encoded, vaultPassword)
+        val opened = VaultCrypto.restore(encoded, vaultPassword, purpose)
         lock(); unlocked = opened
+    }
+
+    @Synchronized fun exportBackup(): String {
+        require(role() == "manager") { "当前设备没有导出权限" }
+        val vault = requireNotNull(unlocked) { "请先解锁保险库" }
+        val encoded = state.optString("draft").takeIf { it.isNotEmpty() }
+            ?: state.optJSONObject("pending")?.getString("backup") ?: state.getString("backup")
+        VaultCrypto.authenticate(VaultCrypto.inspect(encoded), vault.vmk).close()
+        return encoded
+    }
+
+    @Synchronized fun rewrap(secret: String, purpose: String, saved: Boolean = true) {
+        require(role() == "manager") { "当前设备没有管理权限" }
+        require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
+        require(purpose != "recovery" || saved) { "请先离线保存新保险库恢复密钥" }
+        val vault = requireNotNull(unlocked) { "请先解锁保险库" }
+        val encoded = VaultCrypto.rewrap(vault, secret, purpose, requireNotNull(revision()) + 1)
+        require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "保险库超过在线同步大小限制" }
+        save(state.copy().put("draft", encoded))
+        vault.snapshot = VaultCrypto.inspect(encoded)
     }
 
     @Synchronized fun stage(entities: List<VaultEntity>) {
