@@ -36,3 +36,4 @@ backups/
 runtime-data/
 *.authbox
 *.authbox-backup
+*.authbox-recovery

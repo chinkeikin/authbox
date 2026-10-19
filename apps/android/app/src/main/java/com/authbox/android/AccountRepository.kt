@@ -66,6 +66,7 @@ internal fun accountNamespace(origin: String, username: String): String = "authb
     .digest("$origin/$username".toByteArray()).take(12).joinToString("") { "%02x".format(it) }
 
 data class DeviceInfo(val id: String, val name: String, val role: String, val revoked: Boolean, val hasKey: Boolean)
+data class RegistrationInfo(val vaultId: String, val entities: Int, val sourceVaultId: String? = null, val sourceRevision: Long? = null)
 
 internal fun accountRecoveryCodes(): List<String> = (1..8).map { "ABAC1-" + b64(randomBytes(16)) }
 internal fun recoveryHashes(codes: List<String>): JSONArray {
@@ -166,15 +167,51 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun prepareRegistration(vaultPassword: String): Pair<String, List<String>> {
-        require(!state.has("auth"))
+        requireNewAccount()
         val created = VaultCrypto.create(vaultPassword)
+        return saveRegistration(created)
+    }
+
+    private fun requireNewAccount() {
+        require(!state.has("auth") && !state.has("backup") && !hasLocalChanges()) { "目标账号已有本机数据或会话，请使用新的平台账号；不会覆盖已有保险库" }
+        require(!state.optBoolean("registrationSubmitted")) { "上次注册结果尚未确认，请保留恢复材料并使用本机已有设备身份登录，不要重新生成" }
+    }
+
+    @Synchronized fun prepareRegistrationFromBackup(encoded: String, secret: String, purpose: String, newVaultPassword: String): Pair<String, List<String>> {
+        requireNewAccount()
+        VaultCrypto.restore(encoded, secret, purpose).use { source ->
+            val created = VaultCrypto.create(newVaultPassword)
+            try {
+                created.vault.entities.addAll(source.entities.map { it.copy(payload = it.payload.copy()) })
+                created.vault.snapshot = VaultCrypto.inspect(VaultCrypto.snapshot(created.vault, 1))
+            } catch (error: Throwable) { created.vault.close(); throw error }
+            return saveRegistration(created, source.snapshot)
+        }
+    }
+
+    private fun saveRegistration(created: NewVault, source: JSONObject? = null): Pair<String, List<String>> {
         try {
+            val encoded = canonical(created.vault.snapshot)
+            require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "保险库超过在线同步大小限制，原离线副本已保留" }
             val codes = accountRecoveryCodes()
             val hashes = recoveryHashes(codes)
-            val registration = obj("backup" to canonical(created.vault.snapshot), "recoveryHashes" to hashes)
+            val registration = obj("backup" to encoded, "recoveryHashes" to hashes)
+            if (source != null) registration.put("sourceVaultId", source.getString("vaultId")).put("sourceRevision", source.getLong("revision"))
             save(state.copy().put("registration", registration))
             return created.recoveryKey to codes
         } finally { created.vault.close() }
+    }
+
+    @Synchronized fun registrationInfo(): RegistrationInfo? = state.optJSONObject("registration")?.let {
+        val header = VaultCrypto.inspect(it.getString("backup"))
+        RegistrationInfo(header.getString("vaultId"), header.getJSONArray("entities").length(),
+            it.optString("sourceVaultId").takeIf(String::isNotEmpty), if (it.has("sourceRevision")) it.getLong("sourceRevision") else null)
+    }
+
+    @Synchronized fun registrationKit(recovery: Pair<String, List<String>>): String {
+        val prepared = state.getJSONObject("registration")
+        require(canonical(recoveryHashes(recovery.second)) == canonical(prepared.getJSONArray("recoveryHashes"))) { "恢复材料已被替换，请重新生成" }
+        return RecoveryKit.create(api.origin, username, prepared.getString("backup"), recovery.first, recovery.second)
     }
 
     @Synchronized fun register(password: String, invite: String, recoverySaved: Boolean) {
@@ -184,9 +221,14 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         val device = obj("id" to state.getString("identityId"), "name" to "AuthBox Android", "publicKey" to box.publicKey())
         val context = obj("username" to username, "device" to device, "recoveryHashes" to registration.getJSONArray("recoveryHashes"), "backup" to registration.getString("backup"))
         val proof = publicProof("auth.register", context, invite)
-        val response = api.request("/v1/auth/register", context.put("password", password).put("invite", invite).put("proof", proof))
+        save(state.copy().put("registrationSubmitted", true))
+        val response = try { api.request("/v1/auth/register", context.put("password", password).put("invite", invite).put("proof", proof)) }
+        catch (error: ApiFailure) {
+            if (error.status in setOf(400, 401, 403, 429)) save(state.copy().apply { remove("registrationSubmitted") })
+            throw error
+        }
         acceptAuth(response)
-        save(state.copy().put("backup", registration.getString("backup")).apply { remove("registration") })
+        save(state.copy().put("backup", registration.getString("backup")).apply { remove("registration"); remove("registrationSubmitted") })
     }
 
     @Synchronized fun refresh() {

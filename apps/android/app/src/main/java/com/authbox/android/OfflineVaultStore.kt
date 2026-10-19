@@ -42,6 +42,7 @@ class OfflineVaultStore(context: Context, namespace: String = "authbox.offline.v
     }
 
     @Synchronized fun exportBackup(): String = canonical(requireNotNull(opened) { "请先解锁离线保险库" }.snapshot)
+    @Synchronized internal fun registrationBackup(): String = requireNotNull(encoded) { "请先导入并确认保存离线副本" }
 
     @Synchronized fun edit(operation: (MutableList<VaultEntity>) -> Unit) {
         val current = requireNotNull(opened) { "请先解锁离线保险库" }

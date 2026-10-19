@@ -68,6 +68,10 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
     }
     fun confirm(replace: Boolean) = perform("已保存为独立离线副本，可离线查看和管理") { store.confirmImport(replace); selected = null }
     fun unlock(secret: String, purpose: String) = perform("离线保险库已解锁") { store.unlock(secret, purpose) }
+    internal fun registrationBackup(): String {
+        require(foreground) { "请返回前台后重试" }
+        return store.registrationBackup()
+    }
     fun edit(operation: (MutableList<VaultEntity>) -> Unit) = perform("修改已加密保存在离线副本，请及时再导出备份") { store.edit(operation) }
     fun rewrap(secret: String, purpose: String, saved: Boolean = true) = perform("离线封装已更新，请重新导出备份") { store.rewrap(secret, purpose, saved) }
     fun generateRecoveryKey() = perform("新密钥仅在本次界面显示，保存后再确认更新") {
