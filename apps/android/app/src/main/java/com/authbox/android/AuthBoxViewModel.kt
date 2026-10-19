@@ -17,7 +17,9 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList(),
     val entities: List<VaultEntity> = emptyList(), val canEdit: Boolean = false,
     val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList(), val preparedExport: String? = null,
-    val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null)
+    val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null,
+    val history: HistoryPage? = null, val review: ReviewView? = null, val savedVersions: List<SavedVersionInfo> = emptyList(),
+    val hasReview: Boolean = false, val conflict: Boolean = false)
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -29,6 +31,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     @Volatile private var foreground = true
     @Volatile private var generation = 0
     @Volatile private var registrationMaterialId: String? = null
+    @Volatile private var history: HistoryPage? = null
     private var imports = ImportSession()
     @Volatile private var devices = emptyList<DeviceInfo>()
     @Volatile private var preparedExport: String? = null
@@ -52,6 +55,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                         active?.dispose()
                         synchronized(this@AuthBoxViewModel) { imports = ImportSession() }
                         devices = emptyList()
+                        history = null
                         preparedExport = null
                         active = AccountRepository(getApplication(), ApiClient(origin), username)
                         repository = active
@@ -84,7 +88,8 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             if (repository?.role() != "manager") devices = emptyList()
             val snapshot = withContext(Dispatchers.IO) { readState() }
             mutable.value = if (foreground && epoch == generation) snapshot.copy(message = message, recovery = materials ?: emptyList())
-                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null, importPreview = ImportPreview())
+                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null,
+                    history = null, review = null, savedVersions = emptyList(), importPreview = ImportPreview())
         }
     }
 
@@ -99,10 +104,13 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     groups[p.optString("groupId")] ?: "未分组", VaultCrypto.totp(p), p.getBoolean("favorite"))
             }
             ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasLocalChanges(), revision = active.revision(), rows = rows,
-                entities = entities, canEdit = active.role() == "manager" && !active.hasPending(), deviceId = active.deviceId(),
+                entities = entities, canEdit = active.role() == "manager" && !active.hasPending() && !active.hasReview(), deviceId = active.deviceId(),
                 devices = if (foreground && active.role() == "manager") devices else emptyList(),
                 preparedExport = preparedExport,
                 registration = active.registrationInfo(), registrationMaterialId = if (foreground) registrationMaterialId else null,
+                history = if (foreground && active.isUnlocked()) history else null, review = if (foreground) active.reviewView() else null,
+                savedVersions = if (foreground && active.role() == "manager" && active.isUnlocked()) active.savedVersions() else emptyList(),
+                hasReview = active.hasReview(), conflict = active.hasConflict(),
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
@@ -121,7 +129,17 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         val key = mutable.value.recovery.singleOrNull()?.takeIf { it.startsWith("ABR1-") }
         perform(origin, user) { it.rewrap(requireNotNull(key) { "请重新生成保险库恢复密钥" }, "recovery", saved); null }
     }
-    fun upload(origin: String, user: String) = perform(origin, user) { it.upload(); null }
+    fun upload(origin: String, user: String) = perform(origin, user) { it.upload(); history = null; null }
+    fun loadHistory(origin: String, user: String, before: Long? = null) = perform(origin, user) { history = it.history(before); null }
+    fun prepareReview(origin: String, user: String, secret: String, purpose: String, revision: Long? = null, oldSecret: String? = null, oldPurpose: String = "password") = perform(origin, user) {
+        it.prepareReview(secret, purpose, revision, oldSecret, oldPurpose); null
+    }
+    fun confirmReview(origin: String, user: String, id: String, source: Boolean, confirmed: Boolean) = perform(origin, user) {
+        it.confirmReview(id, source, confirmed); history = null; null
+    }
+    fun cancelReview(origin: String, user: String) = perform(origin, user) { it.cancelReview(); null }
+    fun exportSavedVersion(origin: String, user: String, id: String) = perform(origin, user) { preparedExport = it.exportSavedVersion(id); null }
+    fun deleteSavedVersion(origin: String, user: String, id: String, confirmed: Boolean) = perform(origin, user) { it.deleteSavedVersion(id, confirmed); null }
     fun refresh(origin: String, user: String) = perform(origin, user) { it.refresh(); null }
     fun logout(origin: String, user: String) = perform(origin, user) { it.logout(); null }
     fun loadDevices(origin: String, user: String) = perform(origin, user) { devices = it.devices(); null }
@@ -197,10 +215,11 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun cancelImport() { synchronized(this) { imports = ImportSession() }; mutable.value = mutable.value.copy(importPreview = ImportPreview()) }
 
     fun lock() {
-        generation++; registrationMaterialId = null
+        generation++; registrationMaterialId = null; history = null
         synchronized(this) { imports = ImportSession() }
         devices = emptyList()
-        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null, devices = emptyList(), importPreview = ImportPreview())
+        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null,
+            history = null, review = null, savedVersions = emptyList(), devices = emptyList(), importPreview = ImportPreview())
         viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
     }
     fun onHidden() { foreground = false; lock() }

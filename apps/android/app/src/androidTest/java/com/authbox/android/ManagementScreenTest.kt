@@ -54,7 +54,8 @@ class ManagementScreenTest {
             compose.onNodeWithText("QA 分组").performClick()
             compose.onNodeWithText("备注").performScrollTo().performTextInput("可搜索备注")
             compose.onNodeWithText("保存到本机").performClick()
-            fixture.waitText("qa@example.invalid")
+            compose.waitUntil(10000) { !fixture.state().busy && fixture.state().entities.any { it.type == "account" && it.payload.getString("account") == "qa@example.invalid" } }
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("qa@example.invalid"))
             compose.onNodeWithText("搜索账号或分组").performTextInput("可搜索备注")
             compose.onNodeWithText("搜索账号或分组").performImeAction()
             compose.onNodeWithTag("accounts").performScrollToNode(hasText("qa@example.invalid"))
@@ -63,7 +64,8 @@ class ManagementScreenTest {
             compose.onNodeWithText("编辑").performClick()
             compose.onNodeWithText("自定义名称").performScrollTo().performTextReplacement("QA 已编辑")
             compose.onNodeWithText("保存到本机").performClick()
-            fixture.waitText("QA 分组 · QA 已编辑")
+            compose.waitUntil(10000) { !fixture.state().busy && fixture.state().entities.any { it.type == "account" && it.payload.getString("name") == "QA 已编辑" } }
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("QA 分组 · QA 已编辑"))
             compose.onAllNodes(isToggleable()).filterToOne(hasAnyAncestor(hasTestTag("accounts"))).performClick()
             compose.onNodeWithTag("accounts").performScrollToIndex(0)
             compose.onNodeWithText("批量管理 (1)").performClick()
@@ -71,11 +73,11 @@ class ManagementScreenTest {
             compose.onNodeWithText("确认移入").performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("qa@example.invalid", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("回收站").performClick()
-            fixture.waitText("qa@example.invalid")
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("qa@example.invalid"))
             compose.onNodeWithText("恢复账号").performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("qa@example.invalid", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("回收站").performClick()
-            fixture.waitText("qa@example.invalid")
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("qa@example.invalid"))
             compose.onNodeWithText("修改已加密保存在本机，等待同步").assertExists()
         }
     }

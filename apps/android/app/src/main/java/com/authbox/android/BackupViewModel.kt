@@ -83,6 +83,7 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
     }
     fun prepareExport() = perform("请选择导出文件保存位置") { export = store.exportBackup() }
     fun clearExport() { export = null; mutable.value = mutable.value.copy(preparedExport = null) }
+    fun exportStarted() { mutable.value = mutable.value.copy(message = "请选择导出保存位置，完成后将重新读取核对") }
     fun exportNotCompleted(cancelled: Boolean) {
         mutable.value = mutable.value.copy(message = if (cancelled) "已取消导出" else "本次导出未完成，请重新解锁后导出；目标文件可能为空")
     }

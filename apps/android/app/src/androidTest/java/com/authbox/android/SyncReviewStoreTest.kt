@@ -14,19 +14,20 @@ import org.junit.Test
 import org.junit.Before
 import org.junit.After
 
-internal class ReviewApi(var remote: String, val historical: String) : ApiClient("https://review.example.invalid") {
+internal open class ReviewApi(var remote: String, val historical: String, origin: String = "https://review.example.invalid") : ApiClient(origin) {
     var retired = emptyList<String>()
     var headRevision = VaultCrypto.inspect(remote).getLong("revision")
     var rejectCommit = false
     var lastCommit: JSONObject? = null
     var userId = UUID.randomUUID().toString()
     var deviceId = ""
+    var beforeHead: (() -> Unit)? = null
     override fun request(path: String, body: JSONObject?, access: String?): String {
         val header = VaultCrypto.inspect(remote)
         val head = obj("vaultId" to header.getString("vaultId"), "revision" to headRevision, "keyGeneration" to header.getLong("keyGeneration"))
         return when {
             path == "/v1/vault/retired" -> canonical(head.put("retiredIds", JSONArray(retired.sorted())))
-            path == "/v1/vault/head" -> canonical(head)
+            path == "/v1/vault/head" -> { beforeHead?.invoke(); canonical(head) }
             path == "/v1/vault/history" -> canonical(head.put("entries", JSONArray().put(obj("revision" to header.getLong("revision"),
                 "createdAt" to System.currentTimeMillis(), "bytes" to remote.toByteArray().size, "digest" to header.getString("digest")))).put("nextBefore", JSONObject.NULL))
             path == "/v1/vault/snapshot?revision=${header.getLong("revision")}" -> remote

@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 @Composable internal fun VaultManagementScreen(state: ScreenState, onLock: () -> Unit, onSync: () -> Unit,
-    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, settingsLabel: String = "账号与设备", importContent: (@Composable () -> Unit)? = null) {
+    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, settingsLabel: String = "账号与设备",
+    onReview: (() -> Unit)? = null, importContent: (@Composable () -> Unit)? = null) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf<String?>(null) }
     var tag by remember { mutableStateOf<String?>(null) }
@@ -59,12 +60,15 @@ import org.json.JSONObject
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
-            if (onSettings != null) TextButton(onSettings) { Text(settingsLabel) }
+            Row {
+                if (onReview != null && state.role == "manager") TextButton(onReview, enabled = !state.busy) { Text("冲突与历史") }
+                if (onSettings != null) TextButton(onSettings) { Text(settingsLabel) }
+            }
         }
         Text(if (state.role == "offline") "离线副本 · 本机版本 ${state.revision ?: "—"}" else if (state.pending) "修改已加密保存在本机，等待同步" else "云端版本 ${state.revision ?: "—"}")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onLock) { Text("锁定") }
-            if (state.role != "offline") Button(onSync, enabled = !state.busy && state.pending && state.role == "manager") { Text("同步修改") }
+            if (state.role != "offline") Button(onSync, enabled = !state.busy && state.pending && !state.hasReview && state.role == "manager") { Text("同步修改") }
             TextButton({ categories = true }, enabled = editable) { Text("分组与标签") }
         }
         Text(state.message)

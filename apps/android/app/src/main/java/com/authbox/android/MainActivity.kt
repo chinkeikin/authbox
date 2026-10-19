@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     var files by remember { mutableStateOf(false) }
     var local by remember { mutableStateOf(false) }
     var offlineRegistration by remember { mutableStateOf(false) }
+    var syncReview by remember { mutableStateOf(false) }
     var kitTarget by remember { mutableStateOf<Uri?>(null) }
     val recoveryDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { kitTarget = it }
     val chooseRecoveryTarget = { recoveryDocument.launch("authbox-${System.currentTimeMillis()}.authbox-recovery") }
@@ -87,9 +88,18 @@ class MainActivity : ComponentActivity() {
         if (payload != null && exportPayload == null) {
             exportPayload = payload
             model.clearBackupExport(); backups.clearExport()
+            backups.exportStarted()
             val header = VaultCrypto.inspect(payload)
             export.launch("authbox-${header.getString("vaultId")}-r${header.getLong("revision")}-${System.currentTimeMillis()}.authbox-backup")
         }
+    }
+    if (syncReview) {
+        SyncReviewScreen(state, backupState.message, { syncReview = false }, { model.loadHistory(origin, username, it) },
+            { secret, purpose, revision, old, oldPurpose -> model.prepareReview(origin, username, secret, purpose, revision, old, oldPurpose) },
+            { id, source, confirmed -> model.confirmReview(origin, username, id, source, confirmed) },
+            { model.cancelReview(origin, username) }, { model.upload(origin, username) }, { model.exportSavedVersion(origin, username, it) },
+            { id, confirmed -> model.deleteSavedVersion(origin, username, id, confirmed) })
+        return
     }
     if (files) {
         if (offlineRegistration && backupState.stored != null) {
@@ -115,7 +125,7 @@ class MainActivity : ComponentActivity() {
         return
     }
     if (state.unlocked) {
-        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }) {
+        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }, onReview = { syncReview = true }) {
             ImportControls(state, state.importPreview, { model.importQr(origin, username, it) }, { images.launch("image/*") },
                 { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport)
         }
@@ -127,6 +137,7 @@ class MainActivity : ComponentActivity() {
         TextButton({ settings = true }, enabled = !state.busy) { Text("账号与设备") }
         TextButton({ recovery = true }, enabled = !state.busy) { Text("用账号恢复码恢复") }
         TextButton({ files = true }, enabled = !state.busy) { Text("备份与保险库") }
+        if (state.role == "manager") TextButton({ syncReview = true }, enabled = !state.busy) { Text("冲突与历史") }
         if (pendingImages.isNotEmpty()) Text("已选择 ${pendingImages.size} 张图片，解锁后在本机解析；新的图片选择会替换当前导入预览。")
         OutlinedTextField(origin, { origin = it }, label = { Text("服务地址（https://…）") }, singleLine = true, enabled = !state.busy)
         OutlinedTextField(username, { username = it }, label = { Text("平台账号") }, singleLine = true, enabled = !state.busy)
@@ -143,7 +154,7 @@ class MainActivity : ComponentActivity() {
         OutlinedTextField(vaultPassword, { vaultPassword = it }, label = { Text(if (recoveryUnlock) "保险库恢复密钥 ABR1" else "保险库密码（可离线解锁）") }, singleLine = true, enabled = !state.busy,
             visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; model.download(origin, username, secret, if (recoveryUnlock) "recovery" else "password") }, enabled = !state.busy && state.role != null && !state.pending) { Text("下载并解锁") }
+            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; model.download(origin, username, secret, if (recoveryUnlock) "recovery" else "password") }, enabled = !state.busy && state.role != null && !state.pending && !state.hasReview) { Text("下载并解锁") }
             OutlinedButton(onClick = { val secret = vaultPassword; vaultPassword = ""; model.unlock(origin, username, secret, if (recoveryUnlock) "recovery" else "password") }, enabled = !state.busy) { Text("离线解锁") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -153,7 +164,7 @@ class MainActivity : ComponentActivity() {
         }
         if (state.pending) {
             Text("有待上传的本地修改；冲突或网络失败时会保留。")
-            Button(onClick = { model.upload(origin, username) }, enabled = !state.busy && state.role == "manager") { Text("重试上传") }
+            Button(onClick = { model.upload(origin, username) }, enabled = !state.busy && state.role == "manager" && !state.hasReview) { Text("重试上传") }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Text(state.message)

@@ -19,8 +19,8 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context = instrumentation.targetContext
     val input = JSONObject(instrumentation.context.assets.open("protocol.json").bufferedReader().use { it.readText() })
-    private val origin = "https://ui.example.invalid"
-    private val username = "ui_mgmt_" + UUID.randomUUID().toString().take(8)
+    val origin = "https://ui.example.invalid"
+    val username = "ui_mgmt_" + UUID.randomUUID().toString().take(8)
     private val namespace = accountNamespace(origin, username)
     private val preferences = context.getSharedPreferences("endpoint", 0)
     private val previousOrigin = preferences.getString("origin", null)
@@ -58,6 +58,20 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
         var state: BackupState? = null
         instrumentation.runOnMainSync { state = ViewModelProvider(current.get())[BackupViewModel::class.java].state.value }
         return requireNotNull(state)
+    }
+    fun attachRepository(api: ApiClient, configure: (JSONObject) -> Unit) {
+        compose.waitUntil(10000) { !state().busy && state().deviceId != null }
+        val box = KeystoreBox(context, namespace)
+        val saved = parseObject(decodeUtf8(requireNotNull(box.read("state"))))
+        configure(saved); box.write("state", canonical(saved).toByteArray())
+        val repository = AccountRepository(context, api, username)
+        instrumentation.runOnMainSync {
+            val model = ViewModelProvider(current.get())[AuthBoxViewModel::class.java]
+            val field = AuthBoxViewModel::class.java.getDeclaredField("repository").apply { isAccessible = true }
+            (field.get(model) as? AccountRepository)?.dispose(); field.set(model, repository)
+            model.unlock(origin, username, input.getString("password"))
+        }
+        compose.waitUntil(15000) { !state().busy && state().unlocked }
     }
     fun resumed(): Boolean {
         var resumed = false
