@@ -37,6 +37,10 @@
 
 历史快照保留至少 30 天和当前版本，超容量时拒绝新写入，不能为了接收新数据而静默清除未过期历史。初期每用户快照总量上限 32 MiB、安装总量 128 MiB；实体 ID 登记最多 10,000 个、nonce 登记最多 100,000 个/用户。幂等记录保留 30 天、每用户最多 10,000 个；过期原始请求的旧 baseRevision 仍会冲突，客户端不得复用 operationId。读取旧版本只限当前用户，游标早于历史窗口返回 410/full_sync_required，未来游标返回 400。
 
+`GET /v1/vault/history` 返回 `{vaultId, revision, keyGeneration, entries, nextBefore}`；每条为 `{revision, createdAt, bytes, digest}`，`createdAt` 为服务端 Unix 毫秒。按版本倒序，只列出窗口内历史及当前版本。`limit` 默认为 20，范围 1–20；可用 `before` 指定独占上界，取上一页 `nextBefore`，结束为 null。不接受重复参数、未来版本或其他查询字段；reader/manager 均只能读取本账号。
+
+`GET /v1/vault/retired` 仅 manager 可用，不接受查询参数，返回 `{vaultId, revision, keyGeneration, retiredIds}`，按 UUID 排序列出本账号已移除的 ID，上限沿用 10,000 个 ID 登记限制。恢复候选与此列表取交集生成 `restoredIds`。客户端须核对该元数据与完整云端快照来自同一版本；确认前重新检查 head，提交仍必须接受原子 CAS 检查，不能依靠先读后写消除并发。
+
 ## 身份、设备与会话
 
 用户名固定为 `[a-z][a-z0-9_]{2,31}`，平台密码为原始 UTF8 的 8–256 字节，不 trim 或规范化。密码 PHC 使用 Argon2id v19，32 MiB、3 轮、并行度 1、32 字节输出、16 字节随机盐。不存在的用户也执行同参数 dummy KDF，错误信息统一。保险库派生保持独立的 64 MiB 参数。
@@ -89,6 +93,8 @@ API 固定 HTTPS origin。所有业务响应 `Cache-Control: no-store`，不使�
 | POST /v1/account/password/prepare /confirm | 旧密码重认证与设备签名确认 |
 | POST /v1/account/recovery/rotate | manager 会话和设备证明，替换账号恢复码哈希 |
 | GET /v1/vault/head /snapshot /changes | 当前主体隔离读取，历史和游标规则见上文 |
+| GET /v1/vault/history | 当前用户的分页历史元数据，reader/manager 只读 |
+| GET /v1/vault/retired | 仅 manager 读取当前版本对应的已移除 ID |
 | POST /v1/vault/commit | manager，payload 与 proof 分开，原子版本提交 |
 
 挑战、认证和刷新使用 SQLite 持久限速；内存队列最多一个执行、八个等待，重启不清除限速或授权记录。配置错误、超过免费平台额度或应用容量限制时明确失败，不自动升级套餐，不回退密码强度。公开临时验证入口必须另有随机探针凭据和到期限制，正式服务不包含读取密码哈希或任意清库的接口。

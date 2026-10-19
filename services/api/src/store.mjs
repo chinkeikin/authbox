@@ -416,9 +416,28 @@ export class InstallationStore {
       this.permit(principal, 'device.list'); need(!url.search, 400, 'invalid_query');
       return json({ devices: this.sql.exec('SELECT id,name,role,revoked,public_key IS NOT NULL AS hasKey FROM devices WHERE user_id = ? ORDER BY id', principal.user_id).toArray() });
     }
-    need(['/v1/vault/head', '/v1/vault/snapshot', '/v1/vault/changes'].includes(path), 404, 'not_found');
+    need(['/v1/vault/head', '/v1/vault/snapshot', '/v1/vault/changes', '/v1/vault/history', '/v1/vault/retired'].includes(path), 404, 'not_found');
     this.permit(principal, 'vault.read');
     const user = this.one('SELECT * FROM users WHERE id = ?', principal.user_id);
+    if (path === '/v1/vault/retired') {
+      this.permit(principal, 'sync.commit'); need(!url.search, 400, 'invalid_query');
+      return json({ vaultId: user.vault_id, revision: user.revision, keyGeneration: user.key_generation,
+        retiredIds: this.sql.exec('SELECT id FROM entity_ids WHERE user_id = ? AND retired = 1 ORDER BY id', user.id).toArray().map((row) => row.id) });
+    }
+    if (path === '/v1/vault/history') {
+      need([...url.searchParams.keys()].every((name) => ['before', 'limit'].includes(name))
+        && ['before', 'limit'].every((name) => url.searchParams.getAll(name).length <= 1), 400, 'invalid_query');
+      const before = url.searchParams.get('before'); const rawLimit = url.searchParams.get('limit') ?? '20';
+      need(/^(?:[1-9]|1[0-9]|20)$/.test(rawLimit), 400, 'invalid_query');
+      need(before === null || (/^[1-9][0-9]{0,15}$/.test(before) && Number.isSafeInteger(Number(before)) && Number(before) <= user.revision), 400, 'invalid_query');
+      const limit = Number(rawLimit);
+      const rows = this.sql.exec(`SELECT revision,created_at AS createdAt,byte_count AS bytes,digest FROM snapshots WHERE user_id = ?
+        AND (created_at >= ? OR revision = ?) AND revision ${before === null ? '<=' : '<'} ? ORDER BY revision DESC LIMIT ?`,
+      user.id, this.now() - 30 * DAY, user.revision, before === null ? user.revision : Number(before), limit + 1).toArray();
+      const entries = rows.slice(0, limit);
+      return json({ vaultId: user.vault_id, revision: user.revision, keyGeneration: user.key_generation, entries,
+        nextBefore: rows.length > limit ? entries.at(-1).revision : null });
+    }
     if (path === '/v1/vault/head') { need(!url.search, 400, 'invalid_query'); return json({ vaultId: user.vault_id, revision: user.revision, keyGeneration: user.key_generation }); }
     const key = path.endsWith('/changes') ? 'after' : 'revision';
     need([...url.searchParams.keys()].every((name) => name === key) && url.searchParams.getAll(key).length <= 1, 400, 'invalid_query');

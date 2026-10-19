@@ -158,6 +158,18 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   const removedId = current.entities[0].id;
   const removedBackup = await nextBackup(current, 4, undefined, [removedId]);
   await managed('remove-entity', '/v1/vault/commit', 'sync.commit', { operationId: crypto.randomUUID(), baseRevision: 3, restoredIds: [], backup: removedBackup }, manager, managerToken);
+  const retired = (await call('retired-ids-manager', '/v1/vault/retired', { token: managerToken })).value;
+  assert.equal(retired.revision, 4); assert.deepEqual(retired.retiredIds, [removedId]);
+  await call('retired-reader-denied', '/v1/vault/retired', { token: readerToken, expected: 403 });
+  await call('retired-query-denied', '/v1/vault/retired?userId=other', { token: managerToken, expected: 400 });
+  const history = (await call('history-first-page', '/v1/vault/history?limit=2', { token: readerToken })).value;
+  assert.deepEqual(history.entries.map((row) => row.revision), [4, 3]); assert.equal(history.nextBefore, 3);
+  const older = (await call('history-next-page', '/v1/vault/history?limit=2&before=3', { token: managerToken })).value;
+  assert.deepEqual(older.entries.map((row) => row.revision), [2, 1]); assert.equal(older.nextBefore, null);
+  assert.equal(older.entries[0].digest, JSON.parse(next).digest);
+  for (const query of ['before=5', 'before=0', 'before=01', 'before=2&before=3', 'limit=21', 'limit=0', 'userId=other']) {
+    await call('history-invalid-query', '/v1/vault/history?' + query, { token: managerToken, expected: 400 });
+  }
   const restoredRecord = await sealRecord(first.vault.vmk, { vaultId: current.vaultId, id: removedId, type: 'account', revision: 5, keyGeneration: 1 }, changedPayload);
   const restoredEntities = [restoredRecord, ...JSON.parse(removedBackup).entities].sort((a, b) => a.id.localeCompare(b.id));
   const restoreSource = JSON.parse(removedBackup); delete restoreSource.digest; delete restoreSource.manifest;
@@ -165,6 +177,7 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   const restoring = { operationId: crypto.randomUUID(), baseRevision: 4, restoredIds: [], backup: restoredBackup };
   await managed('silent-resurrection-denied', '/v1/vault/commit', 'sync.commit', restoring, manager, managerToken, 400);
   await managed('explicit-history-restore', '/v1/vault/commit', 'sync.commit', { ...restoring, restoredIds: [removedId] }, manager, managerToken);
+  assert.deepEqual((await call('retired-cleared-after-restore', '/v1/vault/retired', { token: managerToken })).value.retiredIds, []);
   await clock();
 
   const otherFixture = await makeBackupFixture();
@@ -174,6 +187,8 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   const otherProof = await authProof('other-register', 'auth.register', otherContext, otherManager, invites[1]);
   const other = (await call('other-register', '/v1/auth/register', { payload: { ...otherContext, password: apiFixturePassword, invite: invites[1], proof: otherProof }, expected: 201 })).value;
   assert.equal((await call('other-user-snapshot', '/v1/vault/snapshot', { token: other.session.accessToken })).text, otherFixture.backup);
+  const isolatedHistory = (await call('history-other-user-isolated', '/v1/vault/history', { token: other.session.accessToken })).value;
+  assert.equal(isolatedHistory.vaultId, otherFixture.vault.vaultId); assert.deepEqual(isolatedHistory.entries.map((row) => row.revision), [1]);
   await call('cross-user-query-rejected', `/v1/vault/snapshot?userId=${registered.user.id}`, { token: other.session.accessToken, expected: 400 });
   await managed('cross-user-device-denied', '/v1/devices/revoke', 'device.revoke', { deviceId: manager.value.id }, otherManager, other.session.accessToken, 404);
 
@@ -273,6 +288,7 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   const reconnected = (await call('reconnect-after-idle', '/v1/auth/device-login', { payload: { ...reconnectContext, password: recoverBody.password, proof: reconnectProof } })).value;
   await call('old-cursor-reset-required', '/v1/vault/changes?after=1', { token: reconnected.session.accessToken, expected: 410 });
   await call('old-history-expired', '/v1/vault/snapshot?revision=1', { token: reconnected.session.accessToken, expected: 404 });
+  assert.deepEqual((await call('history-retains-expired-current-only', '/v1/vault/history', { token: reconnected.session.accessToken })).value.entries.map((row) => row.revision), [5]);
   await call('current-snapshot-retained', '/v1/vault/snapshot', { token: reconnected.session.accessToken });
   let absoluteToken = reconnected.session.refreshToken;
   for (let index = 0; index < 3; index++) {
