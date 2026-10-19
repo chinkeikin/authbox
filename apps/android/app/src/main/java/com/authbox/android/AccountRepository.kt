@@ -89,6 +89,8 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun role(): String? = state.optJSONObject("auth")?.getJSONObject("device")?.getString("role")
     @Synchronized fun revision(): Long? = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it).getLong("revision") }
     @Synchronized fun hasPending(): Boolean = state.has("pending")
+    @Synchronized fun hasDraft(): Boolean = state.has("draft")
+    @Synchronized fun hasLocalChanges(): Boolean = hasPending() || hasDraft()
     @Synchronized fun isUnlocked(): Boolean = unlocked != null
     @Synchronized fun lock() { unlocked?.close(); unlocked = null }
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(unlocked) { "请先解锁保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
@@ -194,7 +196,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun download(vaultPassword: String) {
-        require(!hasPending()) { "本地存在待上传内容，请先完成上传或处理冲突" }
+        require(!hasLocalChanges()) { "本地存在待上传内容，请先完成上传或处理冲突" }
         val encoded = api.request("/v1/vault/snapshot", access = freshAccess())
         val opened = VaultCrypto.restore(encoded, vaultPassword)
         try {
@@ -211,14 +213,15 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun unlock(vaultPassword: String) {
-        val encoded = state.optJSONObject("pending")?.getString("backup") ?: state.getString("backup")
+        val encoded = state.optString("draft").takeIf { it.isNotEmpty() }
+            ?: state.optJSONObject("pending")?.getString("backup") ?: state.getString("backup")
         val opened = VaultCrypto.restore(encoded, vaultPassword)
         lock(); unlocked = opened
     }
 
     @Synchronized fun stage(entities: List<VaultEntity>) {
         require(role() == "manager") { "当前设备只有只读权限" }
-        require(!hasPending()) { "已有待上传内容" }
+        require(!hasLocalChanges()) { "已有待上传内容" }
         val vault = requireNotNull(unlocked) { "请先解锁保险库" }
         val previous = vault.entities.map { it.copy(payload = it.payload.copy()) }
         try {
@@ -232,8 +235,30 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         } catch (error: Throwable) { vault.entities.clear(); vault.entities.addAll(previous); throw error }
     }
 
+    @Synchronized fun edit(operation: (MutableList<VaultEntity>) -> Unit) {
+        require(role() == "manager") { "当前设备只有只读权限" }
+        require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
+        val vault = requireNotNull(unlocked) { "请先解锁保险库" }
+        val next = vault.entities.map { it.copy(payload = it.payload.copy()) }.toMutableList()
+        operation(next)
+        VaultCrypto.validateEntities(next)
+        val candidate = OpenVault(vault.vmk.copyOf(), vault.snapshot.copy(), next)
+        try {
+            val backup = VaultCrypto.snapshot(candidate, requireNotNull(revision()) + 1)
+            require(backup.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "保险库超过在线同步大小限制" }
+            save(state.copy().put("draft", backup))
+            vault.entities.clear(); vault.entities.addAll(next.map { it.copy(payload = it.payload.copy()) })
+            vault.snapshot = VaultCrypto.inspect(backup)
+        } finally { candidate.close() }
+    }
+
     @Synchronized fun upload() {
         require(role() == "manager") { "当前设备只有只读权限" }
+        if (!hasPending() && hasDraft()) {
+            val payload = obj("operationId" to UUID.randomUUID().toString(), "baseRevision" to requireNotNull(revision()),
+                "restoredIds" to JSONArray(), "backup" to state.getString("draft"))
+            save(state.copy().put("pending", payload).apply { remove("draft") })
+        }
         val pending = state.getJSONObject("pending").copy()
         val hash = digest(pending)
         val token = freshAccess()
