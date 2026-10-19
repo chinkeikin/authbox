@@ -133,7 +133,7 @@ class CloudCleanupTest {
         val namespace = config.getString("namespace")
         require(namespace.matches(Regex("authbox\\.test\\.cloud\\.[a-f0-9]{10}")))
         val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        for (name in listOf(namespace, "$namespace.reader", "$namespace.proof")) {
+        for (name in listOf(namespace, "$namespace.reader", "$namespace.proof", "$namespace.management")) {
             File(instrumentation.targetContext.noBackupFilesDir, name).deleteRecursively()
             for (suffix in listOf("storage", "device")) if (keys.containsAlias("$name.$suffix")) keys.deleteEntry("$name.$suffix")
         }

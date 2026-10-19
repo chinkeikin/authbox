@@ -2,7 +2,7 @@
 
 AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责账号管理，Chrome 扩展只负责查看、搜索和复制验证码，NAS 主动拉取加密备份。
 
-跨端协议及账号、设备、会话和密文同步服务核心已实现。Android 工程已建立，Keystore、账号登录与加密同步通过 PHB110 和 Cloudflare 免费环境联调。Android 完整管理功能、Chrome 扩展仍在后续阶段，当前未部署生产服务。
+跨端协议及账号、设备、会话和密文同步服务核心已实现。Android 已支持账号与分组标签管理、二维码及迁移导入、加密草稿，Keystore、登录和加密同步通过 PHB110 与 Cloudflare 免费环境联调。完整恢复、系统解锁及 Chrome 扩展仍在后续阶段，当前未部署生产服务。
 
 ## 第一版范围
 
@@ -25,6 +25,7 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [服务验证记录](docs/api-results.md)
 - [Android 工程与构建](apps/android/README.md)
 - [Android 真机及云端联调记录](docs/android-results.md)
+- [Android 管理与扫码导入记录](docs/android-management-results.md)
 - [许可证说明](docs/licensing.md)
 
 ## 仓库组织

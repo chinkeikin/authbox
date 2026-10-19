@@ -7,10 +7,10 @@ import { inspectBackup, restoreBackup, createBackup } from '../../packages/proto
 import { validateVaultEntities } from '../../packages/protocol/src/business.mjs';
 import { sealRecord } from '../../packages/protocol/src/vault.mjs';
 
-export async function runAndroidCloud({ origin, fixtureToken, invite }) {
+export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite }) {
   await checkDevice();
   const suffix = randomBytes(5).toString('hex');
-  const config = { origin, fixtureToken, invite, username: `android_${suffix}`, namespace: `authbox.test.cloud.${suffix}`,
+  const config = { origin, fixtureToken, invite, managementInvite, username: `android_${suffix}`, namespace: `authbox.test.cloud.${suffix}`,
     password: 'AuthBox Android synthetic login 🔐', vaultPassword: 'AuthBox Android synthetic vault 🔐' };
   const configPath = 'apps/android/app/build/test-fixtures/cloud-config.json';
   const request = async (path, body, token) => {
@@ -74,7 +74,24 @@ export async function runAndroidCloud({ origin, fixtureToken, invite }) {
     assert.equal(untouched.pending.operationId, resumed.pending.operationId);
     results.push('Stale CAS returns 409 and preserves local edits; download cannot overwrite pending work');
     await request('/v1/auth/logout', {}, access);
-    return { checks: results.length, results, model: 'PHB110', api: 35, instrumentation: 'CloudTest: 2 tests x 3 phases passed' };
+    await instrument('CloudManagementTest', 'write');
+    await device('shell', 'am', 'force-stop', 'com.authbox.android');
+    await instrument('CloudManagementTest', 'read');
+    const management = await (await request('/v1/auth/login', { username: config.username + '_m', password: config.password,
+      deviceName: 'Node management observer', publicKey: null })).json();
+    const managementBackup = await (await request('/v1/vault/snapshot', undefined, management.session.accessToken)).text();
+    const managed = await restoreBackup(managementBackup, { purpose: 'password', secret: config.vaultPassword });
+    try {
+      validateVaultEntities(managed.entities); assert.equal(managed.revision, 2);
+      assert.equal(managed.entities.filter(({ metadata }) => metadata.type === 'account').length, 4);
+      assert.equal(managed.entities.find(({ metadata }) => metadata.type === 'group').payload.name, 'Cloud QA renamed');
+      assert.ok(managed.entities.filter(({ metadata }) => metadata.type === 'account').every(({ payload }) => payload.favorite && payload.deletedAt === null && payload.tagIds.length === 1));
+    } finally { managed.vmk.fill(0); }
+    await request('/v1/auth/logout', {}, management.session.accessToken);
+    results.push('Standard and Google batch imports plus group/tag edits persist as one offline draft',
+      'Draft survives force-stop and commits once to SQLite DO', 'Independent Node observer validates all imported accounts and associations');
+    return { checks: results.length, results, model: 'PHB110', api: 35,
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases passed' };
   } catch (error) {
     originalFailure = error;
     throw error;

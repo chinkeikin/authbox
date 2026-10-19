@@ -9,6 +9,7 @@
   },
   "scripts": {
     "verify:android:app:fixtures": "node tools/android/prepare-fixtures.mjs",
+    "verify:android:app:import-fixtures": "node tools/android/import-fixtures.mjs",
     "verify:android:app:protocol": "node tools/android/check-protocol.mjs",
     "verify:android:app:cloud": "node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android",
     "verify:worker": "node tools/feasibility/run-worker.mjs",

@@ -214,7 +214,7 @@ async function verify() {
   }
   if (androidMode) {
     const { runAndroidCloud } = await import('../android/run-cloud.mjs');
-    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0] });
+    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0], managementInvite: invites[1] });
     report.android = result;
     report.checks = result.checks;
     report.runtimeChecksPassed = true;
