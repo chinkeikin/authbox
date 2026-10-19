@@ -14,7 +14,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable internal fun BackupScreen(account: ScreenState, state: BackupState, model: AuthBoxViewModel, backups: BackupViewModel,
-    origin: String, username: String, back: () -> Unit, pick: () -> Unit, openLocal: () -> Unit) {
+    origin: String, username: String, back: () -> Unit, pick: () -> Unit, openLocal: () -> Unit, openRegistration: () -> Unit) {
     var decrypt by remember { mutableStateOf<String?>(null) }
     var replace by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
                 Text("本机离线保险库", style = MaterialTheme.typography.titleMedium)
                 state.stored?.let {
                     Text("${it.vaultId} · 本机版本 ${it.revision}")
+                    OutlinedButton(openRegistration, enabled = !state.busy && !account.busy) { Text("接入新账号同步") }
                     if (!state.local.unlocked) OutlinedButton({ decrypt = "unlock" }, enabled = !state.busy) { Text("解锁离线副本") }
                     else {
                         Row {

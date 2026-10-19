@@ -16,7 +16,8 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val unlocked: Boolean = false, val pending: Boolean = false, val revision: Long? = null,
     val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList(),
     val entities: List<VaultEntity> = emptyList(), val canEdit: Boolean = false,
-    val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList(), val preparedExport: String? = null)
+    val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList(), val preparedExport: String? = null,
+    val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null)
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -26,6 +27,8 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     val state = mutable.asStateFlow()
     @Volatile private var repository: AccountRepository? = null
     @Volatile private var foreground = true
+    @Volatile private var generation = 0
+    @Volatile private var registrationMaterialId: String? = null
     private var imports = ImportSession()
     @Volatile private var devices = emptyList<DeviceInfo>()
     @Volatile private var preparedExport: String? = null
@@ -36,7 +39,9 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
 
     private fun perform(origin: String, username: String, operation: (AccountRepository) -> List<String>?) {
         if (mutable.value.busy) return
-        mutable.value = mutable.value.copy(busy = true, message = "正在处理…", recovery = emptyList())
+        val epoch = generation
+        registrationMaterialId = null
+        mutable.value = mutable.value.copy(busy = true, message = "正在处理…", recovery = emptyList(), registrationMaterialId = null)
         viewModelScope.launch {
             var message = "操作完成"
             var materials: List<String>? = null
@@ -53,7 +58,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                         preferences.edit().putString("origin", origin).putString("username", username).apply()
                     }
                     try { materials = operation(active) }
-                    finally { if (!foreground) active.lock() }
+                    finally { if (!foreground || epoch != generation) active.lock() }
                 }
             } catch (error: Exception) {
                 message = when (error) {
@@ -72,11 +77,14 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     else -> "数据或输入不符合协议，请检查地址、账号与参数"
                 }
             }
-            if (!foreground) withContext(Dispatchers.IO) { repository?.lock() }
+            if (!foreground || epoch != generation) {
+                registrationMaterialId = null
+                withContext(Dispatchers.IO) { repository?.lock() }
+            }
             if (repository?.role() != "manager") devices = emptyList()
             val snapshot = withContext(Dispatchers.IO) { readState() }
-            mutable.value = if (foreground) snapshot.copy(message = message, recovery = materials ?: emptyList())
-                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), importPreview = ImportPreview())
+            mutable.value = if (foreground && epoch == generation) snapshot.copy(message = message, recovery = materials ?: emptyList())
+                else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null, importPreview = ImportPreview())
         }
     }
 
@@ -94,6 +102,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                 entities = entities, canEdit = active.role() == "manager" && !active.hasPending(), deviceId = active.deviceId(),
                 devices = if (foreground && active.role() == "manager") devices else emptyList(),
                 preparedExport = preparedExport,
+                registration = active.registrationInfo(), registrationMaterialId = if (foreground) registrationMaterialId else null,
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
@@ -132,9 +141,28 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun recover(origin: String, user: String, code: String, password: String, confirmed: Boolean) = perform(origin, user) {
         it.recover(code, password, confirmed); devices = emptyList(); null
     }
-    fun prepare(origin: String, user: String, password: String) = perform(origin, user) {
-        val recovery = it.prepareRegistration(password)
-        listOf("保险库恢复密钥：", recovery.first, "账号恢复码（每个只能用一次）：") + recovery.second
+    private fun registrationMaterials(active: AccountRepository, materials: Pair<String, List<String>>, target: Uri?, epoch: Int): List<String> {
+        val kit = active.registrationKit(materials)
+        require(foreground && epoch == generation) { "界面已锁定，请返回后重新生成恢复材料" }
+        if (target != null) try { RecoveryKit.write(getApplication(), target, kit) }
+        catch (error: Exception) { throw IllegalStateException("恢复材料保存未确认，文件可能不完整；请重新生成并保存后再注册，原离线副本已保留", error) }
+        require(foreground && epoch == generation) { "材料保存期间界面已锁定，请检查文件并重新生成后确认" }
+        val value = RecoveryKit.inspect(kit)
+        registrationMaterialId = value.getString("vaultId")
+        return listOf("服务地址：${active.api.origin}", "平台账号：${active.username}", "保险库 UUID：${registrationMaterialId}",
+            "保存日期：${value.getString("createdAt")}", "材料包格式：v1 · 备份格式：v1",
+            if (target == null) "请将当前全部材料抄写并保存到手机以外" else "恢复材料文件已写入并读回复核，请另存到手机以外",
+            "保险库恢复密钥（解密备份）：", materials.first, "账号恢复码（重设登录，每个只能用一次）：") + materials.second
+    }
+    fun prepare(origin: String, user: String, password: String, target: Uri? = null) {
+        val epoch = generation
+        perform(origin, user) { registrationMaterials(it, it.prepareRegistration(password), target, epoch) }
+    }
+    fun prepareFromOffline(origin: String, user: String, source: () -> String, secret: String, purpose: String, password: String, target: Uri) {
+        val epoch = generation
+        perform(origin, user) {
+            registrationMaterials(it, it.prepareRegistrationFromBackup(source(), secret, purpose, password), target, epoch)
+        }
     }
     fun register(origin: String, user: String, password: String, invite: String, saved: Boolean) = perform(origin, user) {
         it.register(password, invite, saved); emptyList()
@@ -169,9 +197,10 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun cancelImport() { synchronized(this) { imports = ImportSession() }; mutable.value = mutable.value.copy(importPreview = ImportPreview()) }
 
     fun lock() {
+        generation++; registrationMaterialId = null
         synchronized(this) { imports = ImportSession() }
         devices = emptyList()
-        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), devices = emptyList(), importPreview = ImportPreview())
+        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null, devices = emptyList(), importPreview = ImportPreview())
         viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
     }
     fun onHidden() { foreground = false; lock() }

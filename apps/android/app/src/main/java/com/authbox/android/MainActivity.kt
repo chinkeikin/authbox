@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,6 +50,10 @@ class MainActivity : ComponentActivity() {
     var recoveryUnlock by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(false) }
     var local by remember { mutableStateOf(false) }
+    var offlineRegistration by remember { mutableStateOf(false) }
+    var kitTarget by remember { mutableStateOf<Uri?>(null) }
+    val recoveryDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { kitTarget = it }
+    val chooseRecoveryTarget = { recoveryDocument.launch("authbox-${System.currentTimeMillis()}.authbox-recovery") }
     var exportPayload by remember { mutableStateOf<String?>(null) }
     val document = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) backups.selectFile(uri) }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.authbox.backup+json")) { uri ->
@@ -70,6 +75,7 @@ class MainActivity : ComponentActivity() {
         onDispose { lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(Unit) { while (true) { delay(1000); model.tick(); backups.tick() } }
+    LaunchedEffect(state.recovery) { saved = false }
     LaunchedEffect(state.unlocked, pendingImages) {
         if (state.unlocked && pendingImages.isNotEmpty()) {
             val selected = pendingImages; pendingImages = emptyList()
@@ -86,10 +92,18 @@ class MainActivity : ComponentActivity() {
         }
     }
     if (files) {
-        if (local && backupState.local.unlocked) {
+        if (offlineRegistration && backupState.stored != null) {
+            OfflineRegistrationScreen(state, requireNotNull(backupState.stored), origin, username, kitTarget, chooseRecoveryTarget,
+                { model.lock(); offlineRegistration = false }, { model.lock(); files = false; offlineRegistration = false; local = false },
+                { nextOrigin, nextUser, secret, purpose, nextPassword, target ->
+                    origin = nextOrigin; username = nextUser
+                    model.prepareFromOffline(nextOrigin, nextUser, backups::registrationBackup, secret, purpose, nextPassword, target)
+                }, model::register)
+        } else if (local && backupState.local.unlocked) {
             VaultManagementScreen(backupState.local, backups::lock, {}, backups::edit, { local = false }, "备份与保险库")
         } else BackupScreen(state, backupState, model, backups, origin, username,
-            { backups.lock(); files = false; local = false }, { document.launch(arrayOf("*/*")) }, { model.lock(); local = true })
+            { backups.lock(); files = false; local = false }, { document.launch(arrayOf("*/*")) }, { model.lock(); local = true },
+            { kitTarget = null; offlineRegistration = true; model.lock() })
         return
     }
     if (settings) {
@@ -146,17 +160,19 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         TextButton(onClick = { registration = !registration }, enabled = !state.busy) { Text("新建平台账号") }
         if (registration) {
-            Text("先填写账号和保险库密码，生成并离线保存恢复材料，再使用部署管理员签发的邀请码注册。重新生成会替换尚未注册的材料。")
-            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; saved = false; model.prepare(origin, username, secret) }, enabled = !state.busy && state.role == null) { Text("生成保险库与恢复材料") }
+            Text("先选择恢复材料包保存位置，再填写账号和保险库密码。材料包为明文，应另存到手机以外；不包含保险库备份或密码。重新生成会替换尚未注册的材料。")
+            OutlinedButton(chooseRecoveryTarget, enabled = !state.busy) { Text("选择恢复材料包保存位置") }
+            Text(if (kitTarget == null) "尚未选择恢复包保存位置" else "已选择恢复包保存位置")
+            Button(onClick = { val secret = vaultPassword; vaultPassword = ""; saved = false; model.prepare(origin, username, secret, kitTarget) }, enabled = !state.busy && state.role == null && kitTarget != null) { Text("生成保险库与恢复材料") }
             state.recovery.forEach { Text(it) }
             Row {
-                Checkbox(saved, { saved = it }, enabled = state.recovery.isNotEmpty() && !state.busy)
+                Checkbox(saved, { saved = it }, enabled = state.registrationMaterialId != null && state.recovery.isNotEmpty() && !state.busy, modifier = Modifier.testTag("registration-saved"))
                 Text("已离线保存当前全部恢复材料", Modifier.padding(top = 12.dp))
             }
             OutlinedTextField(invite, { invite = it }, label = { Text("注册邀请码") }, singleLine = true, enabled = !state.busy,
                 visualTransformation = PasswordVisualTransformation())
             Button(onClick = { val secret = password; val code = invite; password = ""; invite = ""; model.register(origin, username, secret, code, saved) },
-                enabled = !state.busy && saved && state.recovery.isNotEmpty()) { Text("确认注册") }
+                enabled = !state.busy && saved && state.registrationMaterialId != null && state.recovery.isNotEmpty()) { Text("确认注册") }
         }
     }
     if (recovery) AccountRecoveryDialog(state.busy, { recovery = false }) { code, next, confirmed ->

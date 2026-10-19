@@ -15,7 +15,7 @@ import java.security.KeyStore
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
-internal class UiFixture(private val compose: ComposeTestRule) : AutoCloseable {
+internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolean = true) : AutoCloseable {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context = instrumentation.targetContext
     val input = JSONObject(instrumentation.context.assets.open("protocol.json").bufferedReader().use { it.readText() })
@@ -31,12 +31,14 @@ internal class UiFixture(private val compose: ComposeTestRule) : AutoCloseable {
     init {
         val box = KeystoreBox(context, namespace)
         AccountRepository(context, ApiClient(origin), username).dispose()
-        val state = parseObject(decodeUtf8(requireNotNull(box.read("state"))))
-        state.put("backup", input.getString("backup")).put("refreshUncertain", true)
-            .put("auth", obj("user" to obj("id" to UUID.randomUUID().toString(), "username" to username),
-                "device" to obj("id" to state.getString("identityId"), "role" to "manager"),
-                "session" to obj("accessToken" to "synthetic-not-used")))
-        box.write("state", canonical(state).toByteArray())
+        if (withVault) {
+            val state = parseObject(decodeUtf8(requireNotNull(box.read("state"))))
+            state.put("backup", input.getString("backup")).put("refreshUncertain", true)
+                .put("auth", obj("user" to obj("id" to UUID.randomUUID().toString(), "username" to username),
+                    "device" to obj("id" to state.getString("identityId"), "role" to "manager"),
+                    "session" to obj("accessToken" to "synthetic-not-used")))
+            box.write("state", canonical(state).toByteArray())
+        }
         preferences.edit().putString("origin", origin).putString("username", username).commit()
         instrumentation.runOnMainSync { monitor.addLifecycleCallback(callback) }
         instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
