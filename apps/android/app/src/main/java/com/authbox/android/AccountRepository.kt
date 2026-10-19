@@ -13,14 +13,14 @@ import javax.net.ssl.HttpsURLConnection
 class ApiFailure(val status: Int, val code: String) : Exception("服务请求失败（$status / $code）")
 class SyncConflict : Exception("云端已有新版本；本地待上传内容已保留，请处理冲突")
 
-class ApiClient(val origin: String, private val headers: Map<String, String> = emptyMap()) {
+open class ApiClient(val origin: String, private val headers: Map<String, String> = emptyMap()) {
     init {
         val uri = URI(origin)
         require(uri.scheme == "https" && uri.rawAuthority != null && uri.host != null && uri.userInfo == null &&
             uri.rawPath.isEmpty() && uri.rawQuery == null && uri.rawFragment == null && uri.port == -1)
     }
 
-    fun request(path: String, body: JSONObject? = null, access: String? = null): String {
+    open fun request(path: String, body: JSONObject? = null, access: String? = null): String {
         require(path.startsWith("/v1/") && !path.startsWith("//"))
         val connection = URL(origin + path).openConnection() as HttpsURLConnection
         try {
@@ -84,6 +84,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     private var state = box.read("state")?.let { parseObject(decodeUtf8(it)) } ?: obj("version" to 1,
         "origin" to api.origin, "username" to username, "identityId" to UUID.randomUUID().toString())
     private var unlocked: OpenVault? = null
+    private var review: OpenReview? = null
 
     init {
         require(number(state, "version") == 1L && text(state, "origin") == api.origin && text(state, "username") == username)
@@ -105,7 +106,10 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun hasDraft(): Boolean = state.has("draft")
     @Synchronized fun hasLocalChanges(): Boolean = hasPending() || hasDraft()
     @Synchronized fun isUnlocked(): Boolean = unlocked != null
-    @Synchronized fun lock() { unlocked?.close(); unlocked = null }
+    @Synchronized fun lock() { unlocked?.close(); unlocked = null; review?.close(); review = null }
+    @Synchronized fun hasReview(): Boolean = state.has("review")
+    @Synchronized fun hasConflict(): Boolean = state.optBoolean("conflictDetected")
+    @Synchronized fun reviewView(): ReviewView? = review?.view()
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(unlocked) { "请先解锁保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
 
     private fun checkLoginPassword(password: String) {
@@ -358,6 +362,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun download(vaultPassword: String, purpose: String = "password") {
+        require(!hasReview()) { "请先确认或取消当前比较" }
         require(!hasLocalChanges()) { "本地存在待上传内容，请先完成上传或处理冲突" }
         val encoded = api.request("/v1/vault/snapshot", access = freshAccess())
         val opened = VaultCrypto.restore(encoded, vaultPassword, purpose)
@@ -393,6 +398,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun rewrap(secret: String, purpose: String, saved: Boolean = true) {
         require(role() == "manager") { "当前设备没有管理权限" }
         require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
+        require(!hasReview()) { "请先确认或取消当前比较" }
         require(purpose != "recovery" || saved) { "请先离线保存新保险库恢复密钥" }
         val vault = requireNotNull(unlocked) { "请先解锁保险库" }
         val encoded = VaultCrypto.rewrap(vault, secret, purpose, requireNotNull(revision()) + 1)
@@ -402,6 +408,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun stage(entities: List<VaultEntity>) {
+        require(!hasReview()) { "请先确认或取消当前比较" }
         require(role() == "manager") { "当前设备只有只读权限" }
         require(!hasLocalChanges()) { "已有待上传内容" }
         val vault = requireNotNull(unlocked) { "请先解锁保险库" }
@@ -420,6 +427,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun edit(operation: (MutableList<VaultEntity>) -> Unit) {
         require(role() == "manager") { "当前设备只有只读权限" }
         require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
+        require(!hasReview()) { "请先确认或取消当前比较" }
         val vault = requireNotNull(unlocked) { "请先解锁保险库" }
         val next = vault.entities.map { it.copy(payload = it.payload.copy()) }.toMutableList()
         operation(next)
@@ -436,10 +444,16 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
 
     @Synchronized fun upload() {
         require(role() == "manager") { "当前设备只有只读权限" }
+        require(!hasReview()) { "请先确认或取消当前比较" }
         if (!hasPending() && hasDraft()) {
             val payload = obj("operationId" to UUID.randomUUID().toString(), "baseRevision" to requireNotNull(revision()),
-                "restoredIds" to JSONArray(), "backup" to state.getString("draft"))
-            save(state.copy().put("pending", payload).apply { remove("draft") })
+                "restoredIds" to JSONArray().apply {
+                    val ids = VaultCrypto.inspect(state.getString("draft")).getJSONArray("entities")
+                    val incoming = (0 until ids.length()).map { ids.getJSONObject(it).getString("id") }.toSet()
+                    val restored = state.optJSONArray("draftRestoredIds") ?: JSONArray()
+                    for (index in 0 until restored.length()) if (restored.getString(index) in incoming) put(restored.getString(index))
+                }, "backup" to state.getString("draft"))
+            save(state.copy().put("pending", payload).apply { remove("draft"); remove("draftRestoredIds") })
         }
         val pending = state.getJSONObject("pending").copy()
         val hash = digest(pending)
@@ -449,11 +463,14 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         val proof = checkedProof(challenge, "sync.commit", hash, auth.getJSONObject("user").getString("id"),
             auth.getJSONObject("device").getString("id"), token.split('.')[1])
         val response = try { JSONObject(api.request("/v1/vault/commit", obj("payload" to pending, "proof" to proof), token)) }
-        catch (error: ApiFailure) { if (error.status == 409) throw SyncConflict(); throw error }
+        catch (error: ApiFailure) {
+            if (error.status == 409 && error.code == "revision_conflict") { save(state.copy().put("conflictDetected", true)); throw SyncConflict() }
+            throw error
+        }
         val snapshot = VaultCrypto.inspect(pending.getString("backup"))
         require(response.getString("operationId") == pending.getString("operationId") &&
             number(response, "revision") == snapshot.getLong("revision") && response.getString("digest") == snapshot.getString("digest"))
-        save(state.copy().put("backup", pending.getString("backup")).apply { remove("pending") })
+        save(state.copy().put("backup", pending.getString("backup")).apply { remove("pending"); remove("conflictDetected") })
         unlocked?.snapshot = snapshot
     }
 
@@ -464,4 +481,147 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun dispose() { lock() }
+
+    private fun currentEncoded(): String = state.optString("draft").takeIf { it.isNotEmpty() }
+        ?: state.optJSONObject("pending")?.getString("backup") ?: state.getString("backup")
+
+    private fun requireReviewAccess() { require(role() == "manager" && isUnlocked()) { "请先解锁管理设备的保险库" } }
+
+    private fun checkRemote(header: JSONObject) {
+        val prior = VaultCrypto.inspect(state.getString("backup"))
+        require(header.getString("vaultId") == prior.getString("vaultId") && header.getLong("revision") >= prior.getLong("revision") &&
+            header.getLong("keyGeneration") >= prior.getLong("keyGeneration") &&
+            (header.getLong("revision") != prior.getLong("revision") || header.getString("digest") == prior.getString("digest"))) { "云端版本回退或保险库身份变化" }
+    }
+
+    private fun checkHead(expected: JSONObject) {
+        val head = JSONObject(api.request("/v1/vault/head", access = managerAccess()))
+        fields(head, "vaultId", "revision", "keyGeneration")
+        require(head.getString("vaultId") == expected.getString("vaultId")) { "保险库身份变化" }
+        if (number(head, "revision") != expected.getLong("revision") || number(head, "keyGeneration") != expected.getLong("keyGeneration")) throw SyncConflict()
+    }
+
+    @Synchronized fun history(before: Long? = null): HistoryPage {
+        requireReviewAccess()
+        require(before == null || before > 0)
+        val result = JSONObject(api.request("/v1/vault/history" + (before?.let { "?before=$it" } ?: ""), access = managerAccess()))
+        fields(result, "vaultId", "revision", "keyGeneration", "entries", "nextBefore")
+        val prior = VaultCrypto.inspect(state.getString("backup"))
+        require(result.getString("vaultId") == prior.getString("vaultId") && number(result, "revision") >= prior.getLong("revision") &&
+            number(result, "keyGeneration") >= prior.getLong("keyGeneration")) { "历史列表身份或版本异常" }
+        val rows = result.getJSONArray("entries"); require(rows.length() <= 20)
+        var last = Long.MAX_VALUE
+        val entries = (0 until rows.length()).map {
+            val row = rows.getJSONObject(it); fields(row, "revision", "createdAt", "bytes", "digest")
+            val revision = number(row, "revision")
+            require(revision < last && revision <= result.getLong("revision") && (before == null || revision < before))
+            last = revision; binary(row, "digest", 32)
+            val bytes = number(row, "bytes"); require(bytes <= 1024 * 1024)
+            HistoryEntry(revision, number(row, "createdAt"), bytes, text(row, "digest"))
+        }
+        val next = if (result.isNull("nextBefore")) null else number(result, "nextBefore").also { require(entries.isNotEmpty() && it == last) }
+        return HistoryPage(result.getLong("revision"), entries, next)
+    }
+
+    @Synchronized fun prepareReview(secret: String, purpose: String = "password", historyRevision: Long? = null,
+        oldSecret: String? = null, oldPurpose: String = "password") {
+        requireReviewAccess()
+        if (historyRevision == null) require(hasLocalChanges()) { "没有待处理的本地修改" }
+        else require(!hasLocalChanges()) { "请先同步本地修改或处理冲突，再恢复历史" }
+        val metadata = JSONObject(api.request("/v1/vault/retired", access = managerAccess()))
+        fields(metadata, "vaultId", "revision", "keyGeneration", "retiredIds")
+        val retired = metadata.getJSONArray("retiredIds"); require(retired.length() <= 10000)
+        var previous = ""
+        for (index in 0 until retired.length()) { val id = retired.getString(index); uuid(id); require(id > previous); previous = id }
+        val remoteEncoded = api.request("/v1/vault/snapshot?revision=${number(metadata, "revision")}", access = managerAccess())
+        val remote = VaultCrypto.restore(remoteEncoded, secret, purpose)
+        var source: OpenVault? = null
+        try {
+            checkRemote(remote.snapshot)
+            require(metadata.getString("vaultId") == remote.snapshot.getString("vaultId") && metadata.getLong("revision") == remote.snapshot.getLong("revision") &&
+                number(metadata, "keyGeneration") == remote.snapshot.getLong("keyGeneration")) { "云端比较元数据不一致" }
+            val retiredIds = (0 until retired.length()).map { retired.getString(it) }.toSet()
+            require(remote.entities.none { it.id in retiredIds }) { "云端已移除 ID 与快照不一致" }
+            val local = currentEncoded()
+            val encoded = if (historyRevision == null) local else {
+                require(historyRevision > 0 && historyRevision < remote.snapshot.getLong("revision")) { "请选择早于当前云端版本的历史" }
+                api.request("/v1/vault/snapshot?revision=$historyRevision", access = managerAccess())
+            }
+            val header = VaultCrypto.inspect(encoded)
+            require(header.getString("vaultId") == remote.snapshot.getString("vaultId") && header.getLong("keyGeneration") <= remote.snapshot.getLong("keyGeneration")) { "比较来源身份或密钥代次异常" }
+            if (historyRevision != null) require(header.getLong("revision") == historyRevision)
+            source = if (historyRevision == null) VaultCrypto.authenticate(header, requireNotNull(unlocked).vmk)
+            else try { VaultCrypto.authenticate(header, remote.vmk) } catch (_: javax.crypto.AEADBadTagException) {
+                require(!oldSecret.isNullOrEmpty()) { "历史使用旧主密钥，请输入对应的旧密码或恢复密钥" }
+                VaultCrypto.restore(encoded, oldSecret, oldPurpose)
+            }
+            require(source.entities.all { entity -> remote.entities.none { it.id == entity.id && it.type != entity.type } }) { "同一条目类型发生变化，不能直接覆盖" }
+            checkHead(remote.snapshot)
+            val next = state.copy()
+            next.optJSONObject("review")?.let { preserveReviewVersions(next, reviewVersions(it)) }
+            val stored = obj("id" to UUID.randomUUID().toString(), "kind" to if (historyRevision == null) "conflict" else "history",
+                "local" to local, "remote" to remoteEncoded, "source" to encoded, "retiredIds" to retired)
+            save(next.put("review", stored))
+            review?.close(); review = OpenReview(stored, source, remote)
+        } catch (error: Throwable) { source?.close(); remote.close(); throw error }
+    }
+
+    @Synchronized fun confirmReview(id: String, keepSource: Boolean, confirmed: Boolean) {
+        requireReviewAccess(); require(confirmed) { "请明确确认整份内容的取舍" }
+        val active = requireNotNull(review) { "比较已锁定，请重新解密并核对" }
+        val stored = state.getJSONObject("review")
+        require(stored.getString("id") == id && active.stored.getString("id") == id && stored.getString("local") == currentEncoded()) { "比较已过期，请重新读取双方内容" }
+        checkHead(active.remote.snapshot)
+        val next = state.copy()
+        preserveReviewVersions(next, reviewVersions(stored))
+        next.put("backup", stored.getString("remote"))
+        next.remove("pending"); next.remove("draft"); next.remove("draftRestoredIds"); next.remove("review"); next.remove("conflictDetected")
+        val candidate = VaultCrypto.authenticate(active.remote.snapshot, active.remote.vmk)
+        var accepted = false
+        try {
+            if (keepSource) {
+                candidate.entities.clear(); candidate.entities.addAll(active.source.entities.map { it.copy(payload = it.payload.copy()) })
+                val encoded = VaultCrypto.snapshot(candidate, candidate.snapshot.getLong("revision") + 1)
+                require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "候选内容超过在线同步大小限制" }
+                val retired = stored.getJSONArray("retiredIds")
+                val incoming = candidate.entities.map { it.id }.toSet()
+                next.put("draft", encoded).put("draftRestoredIds", JSONArray().apply {
+                    for (index in 0 until retired.length()) if (retired.getString(index) in incoming) put(retired.getString(index))
+                })
+                candidate.snapshot = VaultCrypto.inspect(encoded)
+            }
+            save(next)
+            lock(); unlocked = candidate; accepted = true
+        } finally { if (!accepted) candidate.close() }
+    }
+
+    @Synchronized fun cancelReview() {
+        requireReviewAccess()
+        val next = state.copy()
+        next.optJSONObject("review")?.let { preserveReviewVersions(next, reviewVersions(it)) }
+        next.remove("review"); save(next)
+        review?.close(); review = null
+    }
+
+    @Synchronized fun savedVersions(): List<SavedVersionInfo> {
+        requireReviewAccess()
+        val values = state.optJSONArray("savedVersions") ?: JSONArray()
+        return (0 until values.length()).map {
+            val item = values.getJSONObject(it); val header = VaultCrypto.inspect(item.getString("backup"))
+            SavedVersionInfo(item.getString("id"), header.getLong("revision"), item.getString("createdAt"), item.getString("reason"))
+        }.reversed()
+    }
+
+    @Synchronized fun exportSavedVersion(id: String): String {
+        requireReviewAccess(); uuid(id)
+        val values = state.optJSONArray("savedVersions") ?: JSONArray()
+        return (0 until values.length()).map { values.getJSONObject(it) }.single { it.getString("id") == id }.getString("backup").also { VaultCrypto.inspect(it) }
+    }
+
+    @Synchronized fun deleteSavedVersion(id: String, confirmed: Boolean) {
+        requireReviewAccess(); uuid(id); require(confirmed) { "请确认已导出并删除保留副本" }
+        val next = state.copy(); val values = next.optJSONArray("savedVersions") ?: JSONArray()
+        next.put("savedVersions", JSONArray().apply { for (index in 0 until values.length()) if (values.getJSONObject(index).getString("id") != id) put(values.getJSONObject(index)) })
+        save(next)
+    }
 }

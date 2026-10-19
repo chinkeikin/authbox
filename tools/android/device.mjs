@@ -28,11 +28,14 @@ export async function install(testOnly = false) {
       console.log(`${packageName}: installed APK matches build; skipping reinstall`);
       continue;
     }
+    console.log(`${packageName}: installing through Android system installer`);
     assert.match(await device('install', '-r', local), /Success/);
+    console.log(`${packageName}: installation completed`);
   }
 }
 export async function instrument(name, phase = 'write', timeoutMs = 180000) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 900000);
+  console.log(`Starting ${name} (${phase})`);
   const result = (await execute(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-e', 'class', `com.authbox.android.${name}`, '-e', 'phase', phase,
     'com.authbox.android.test/androidx.test.runner.AndroidJUnitRunner'], { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 })).stdout;
   assert.match(result, /OK \(\d+ tests?\)/, result);
