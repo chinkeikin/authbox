@@ -43,6 +43,7 @@
     "jose": "6.2.12",
     "miniflare": "5.20261012.0-beta",
     "playwright-core": "1.64.1",
+    "qrcode": "1.5.4",
     "wrangler": "4.151.0",
     "ws": "8.21.0"
   },

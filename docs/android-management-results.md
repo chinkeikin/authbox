@@ -8,3 +8,12 @@
 - PHB110 `ManagementTest` 3 项通过，6.429 秒：多次离线编辑及重开恢复、同名条目、排序、删除分组标签、回收站恢复、密钥参数更换确认、非法引用的原子拒绝、只读拒绝，以及请求固定后重试 operationId 不变。
 - Node 独立恢复 Android 生成的 revision 2 草稿，验证全部 8 个实体和业务引用，两个同名同账号条目保持独立身份。测试明文仅为合成数据，输出核对后从手机删除。
 - 构建及 Lint 通过；界面与扫码的验证结果在完成后追加。没有改变服务端、云端套餐或密码哈希参数。
+
+## 本地二维码与迁移协议
+
+- 新增限长标准 TOTP URI 与 Google 离线迁移解析。Google 字段结构参考 Aegis，保留原始 proto 与 GPL-3.0 许可；消息读取使用 protobuf-javalite 4.36.2。二维码使用 Apache-2.0 的 ZXing 3.5.4 / Android Embedded 4.3.0，本机识别不调用云服务或 Google Play。
+- PHB110 `ImportTest` 3 项通过，最终复测 2.260 秒：Node 标准协议结果互通、独立 protobuf 编码的单张及两张批次、乱序与重复扫描、缺张阻止确认、跨批次/同索引不同内容拒绝、HOTP 明示不支持、明确跳过、重复跳过/保留两个及确认后原子草稿写入。非法参数、未知版本、畸形消息等 14 个输入被拒绝。
+- PHB110 `QrImageTest` 1 项通过，1.450 秒。图片由 MIT 许可的 Node qrcode 1.5.4 独立生成，Android 通过真实 ContentResolver 读取并用 ZXing 解码；标准图片、多张迁移图片、空白图、超限文件、外部 URL 均覆盖。
+- 图片上限每张 8 MiB、解码后最多 2048×2048；迁移会话最多 100 个二维码、1000 条。UI 确认前没有写入保险库，重复判断基于密钥和算法参数，名称变化不会自动覆盖原账号，回收站条目也参与重复判断。
+- 测试图库 provider 只在独立测试 APK 中；debug manifest 仅声明测试 provider 可见性，release 不含该声明。测试桩单独进程不能使用主 APK 的 Kotlin 运行库，改为纯 Java 与预生成 PNG；OEM 冷启动限制由测试前正常启动合成 provider 解决，没有改变手机安全策略。
+- 这些是合成 Google 格式的兼容检查，没有导出用户真实 Google Authenticator 数据，不能称为实际 Google 应用端到端迁移验收。相机实际取景扫描与界面确认另行验证。

@@ -10,3 +10,11 @@ https://www.bouncycastle.org/licence.html
 Full license texts are included in assets/licenses. Maven artifacts retain their META-INF notices.
 Gradle Wrapper and Android Gradle Plugin are build tools under Apache License 2.0.
 JUnit (test APK only): Eclipse Public License 1.0, https://junit.org/junit4/license.html
+
+ZXing core 3.5.4 and ZXing Android Embedded 4.3.0: ZXing authors / Journey Mobile,
+Apache License 2.0. https://github.com/zxing/zxing ; https://github.com/journeyapps/zxing-android-embedded
+protobuf-javalite 4.36.2: Google LLC and contributors, BSD 3-Clause license.
+https://github.com/protocolbuffers/protobuf
+Google migration schema reference: Aegis contributors, GPL-3.0.
+https://github.com/beemdevelopment/Aegis/blob/master/app/src/main/proto/google_auth.proto
+See licenses/protobuf.txt, licenses/aegis-gpl-3.0.txt and third_party/README.md in the source tree.
