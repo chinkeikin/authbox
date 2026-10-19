@@ -41,7 +41,7 @@ adb -s <PHB110序列号> shell am instrument -w -e class com.authbox.android.Key
 - 确认前展示列表与重复项；默认跳过密钥、算法、位数和周期相同的条目，也可保留两个独立 UUID，禁止自动覆盖。回收站内容也参与查重。预览只在内存，锁定即取消。新的一次图片选择会替换当前预览，批次图片宜一次多选。
 - 图片与二维码仅本机解码，不访问二维码中的链接，不上传图片/URI，不写日志。单张图片最大 8 MiB，解码尺寸最多 2048×2048；会话最多 100 张二维码、1000 条，在线快照仍受原 1 MiB 限制。
 
-从根目录运行 `node tools/android/import-fixtures.mjs` 生成公开 URI、迁移 protobuf 与独立 Node PNG 测试图片。新增 instrumentation 类为 `ManagementTest`、`ManagementScreenTest`、`ImportTest`、`QrImageTest`、`ImportScreenTest`；`CameraFlowTest` 需要用户允许相机并将设备对准公开测试图。测试 provider 只在测试 APK，debug queries 不进入 release。
+从根目录运行 `node tools/android/import-fixtures.mjs` 生成公开 URI、迁移 protobuf 与独立 Node PNG 测试图片。新增 instrumentation 类为 `ManagementTest`、`ManagementScreenTest`、`ImportTest`、`QrImageTest`、`ImportScreenTest`；`GalleryFlowTest` 需要将生成的 `qr/camera.png` 传入手机 Pictures 并通过媒体扫描加入相册，再从真实系统选图页只选择该图；`CameraFlowTest` 需要允许相机并将设备对准公开测试图，目前摄像头实扫仍未验收。人工选图/扫码可使用 `instrument(name, 'write', 600000)` 延长测试超时。测试 provider 只在测试 APK，debug queries 不进入 release。`UiCleanupTest` 可清理因测试中断遗留且仍被选中的合成 UI 账号。
 
 管理和导入的真实验证范围、Google 格式的合成测试边界见 [管理与扫码记录](../../docs/android-management-results.md)。正式 Google 应用导出、真实网站绑定与完整迁移验收仍需单独演练。
 

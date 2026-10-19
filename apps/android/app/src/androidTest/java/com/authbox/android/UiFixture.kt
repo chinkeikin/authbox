@@ -52,6 +52,11 @@ internal class UiFixture(private val compose: ComposeTestRule) : AutoCloseable {
         instrumentation.runOnMainSync { state = ViewModelProvider(current.get())[AuthBoxViewModel::class.java].state.value }
         return requireNotNull(state)
     }
+    fun resumed(): Boolean {
+        var resumed = false
+        instrumentation.runOnMainSync { resumed = monitor.getActivitiesInStage(Stage.RESUMED).contains(current.get()) }
+        return resumed
+    }
     fun shell(command: String) { ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use { it.readBytes() } }
     override fun close() {
         instrumentation.runOnMainSync { current.get()?.finish(); monitor.removeLifecycleCallback(callback) }

@@ -21,9 +21,10 @@ export async function install(testOnly = false) {
     assert.match(await device('install', '-r', resolve('apps/android/app/build/outputs/apk', file)), /Success/);
   }
 }
-export async function instrument(name, phase = 'write') {
-  const result = await device('shell', 'am', 'instrument', '-w', '-e', 'class', `com.authbox.android.${name}`, '-e', 'phase', phase,
-    'com.authbox.android.test/androidx.test.runner.AndroidJUnitRunner');
+export async function instrument(name, phase = 'write', timeoutMs = 180000) {
+  assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 900000);
+  const result = (await execute(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-e', 'class', `com.authbox.android.${name}`, '-e', 'phase', phase,
+    'com.authbox.android.test/androidx.test.runner.AndroidJUnitRunner'], { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 })).stdout;
   assert.match(result, /OK \(\d+ tests?\)/, result);
   assert.doesNotMatch(result, /FAILURES|INSTRUMENTATION_FAILED|Process crashed/);
   console.log(result.trim());

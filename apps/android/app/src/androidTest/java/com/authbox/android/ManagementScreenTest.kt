@@ -4,9 +4,39 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.*
 
 class ManagementScreenTest {
     @get:Rule val compose = createEmptyComposeRule()
+    @Test fun categoryRenameDeleteAndReferenceCleanup() {
+        UiFixture(compose).use { fixture ->
+            fixture.unlock()
+            compose.onNodeWithText("分组与标签").performClick()
+            compose.onNodeWithText("工作").performClick()
+            compose.onNodeWithText("重命名").performTextReplacement("工作改名")
+            compose.onNodeWithText("保存名称").performClick()
+            fixture.waitText("工作改名")
+            compose.onNodeWithText("类型：分组").performClick()
+            compose.onNodeWithText("标签").performClick()
+            compose.onNode(hasText("常用") and hasAnyAncestor(isDialog())).performClick()
+            compose.onNodeWithText("重命名").performTextReplacement("常用改名")
+            compose.onNodeWithText("保存名称").performClick()
+            fixture.waitText("常用改名")
+            compose.onNodeWithText("删除").performClick()
+            compose.onNodeWithText("确认删除").performClick()
+            compose.waitUntil(10000) { fixture.state().entities.none { it.type == "tag" } }
+            assertTrue(VaultEditor.tags(fixture.state().entities.single { it.type == "account" }.payload).isEmpty())
+            compose.onNodeWithText("类型：标签").performClick()
+            compose.onNodeWithText("分组").performClick()
+            compose.onNodeWithText("删除").performClick()
+            compose.onNodeWithText("确认删除").performClick()
+            compose.waitUntil(10000) { fixture.state().entities.none { it.type == "group" } }
+            assertTrue(fixture.state().entities.single { it.type == "account" }.payload.isNull("groupId"))
+            compose.onNodeWithText("完成").performClick()
+            compose.onNodeWithTag("accounts").performScrollToNode(hasText("未分组 · 测试"))
+            compose.onNodeWithText("未分组 · 测试", useUnmergedTree = true).assertExists()
+        }
+    }
     @Test fun createEditSearchAndRecycle() {
         UiFixture(compose).use { fixture ->
             fixture.unlock()
