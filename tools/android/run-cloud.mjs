@@ -90,8 +90,23 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
     await request('/v1/auth/logout', {}, management.session.accessToken);
     results.push('Standard and Google batch imports plus group/tag edits persist as one offline draft',
       'Draft survives force-stop and commits once to SQLite DO', 'Independent Node observer validates all imported accounts and associations');
+    await instrument('CloudSecurityTest', 'write', 300000);
+    const oldLogin = await fetch(origin + '/v1/auth/login', { method: 'POST', headers: {
+      'X-AuthBox-Fixture': fixtureToken, 'Content-Type': 'application/json' },
+      body: canonical({ username: config.username + '_m', password: config.password, deviceName: 'Old password observer', publicKey: null }),
+      redirect: 'error', signal: AbortSignal.timeout(30000) });
+    assert.equal(oldLogin.status, 401); await oldLogin.body?.cancel();
+    const recoveredLogin = await (await request('/v1/auth/login', { username: config.username + '_m', password: config.password + ' recovered',
+      deviceName: 'Recovery observer', publicKey: null })).json();
+    assert.equal(recoveredLogin.device.role, 'reader');
+    assert.equal(await (await request('/v1/vault/snapshot', undefined, recoveredLogin.session.accessToken)).text(), managementBackup);
+    await request('/v1/auth/logout', {}, recoveredLogin.session.accessToken);
+    results.push('Keystore device approval requires fresh device login; revocation rejects the former manager',
+      'Platform password changes preserve encrypted vault and invalidate the old password',
+      'Rotated account recovery code works once and revokes all old devices',
+      'Independent Node observer logs in with the recovered password and downloads identical ciphertext');
     return { checks: results.length, results, model: 'PHB110', api: 35,
-      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases passed' };
+      instrumentation: 'CloudTest: 2 tests x 3 phases; CloudManagementTest: 1 test x 2 phases; CloudSecurityTest: 1 test passed' };
   } catch (error) {
     originalFailure = error;
     throw error;

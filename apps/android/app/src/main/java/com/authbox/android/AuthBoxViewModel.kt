@@ -16,7 +16,7 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val unlocked: Boolean = false, val pending: Boolean = false, val revision: Long? = null,
     val rows: List<AccountRow> = emptyList(), val recovery: List<String> = emptyList(),
     val entities: List<VaultEntity> = emptyList(), val canEdit: Boolean = false,
-    val importPreview: ImportPreview = ImportPreview())
+    val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList())
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -27,6 +27,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     @Volatile private var repository: AccountRepository? = null
     @Volatile private var foreground = true
     private var imports = ImportSession()
+    @Volatile private var devices = emptyList<DeviceInfo>()
 
     init {
         if (initialOrigin.isNotBlank() && initialUsername.isNotBlank()) perform(initialOrigin, initialUsername) { null }
@@ -44,6 +45,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     if (active == null || active.api.origin != origin || active.username != username) {
                         active?.dispose()
                         synchronized(this@AuthBoxViewModel) { imports = ImportSession() }
+                        devices = emptyList()
                         active = AccountRepository(getApplication(), ApiClient(origin), username)
                         repository = active
                         preferences.edit().putString("origin", origin).putString("username", username).apply()
@@ -54,7 +56,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             } catch (error: Exception) {
                 message = when (error) {
                     is ApiFailure -> when {
-                        error.code == "invalid_credentials" -> "账号、密码或设备身份不正确"
+                        error.code == "invalid_credentials" -> "账号、密码、恢复码或设备身份不正确"
                         error.code == "invalid_invite" -> "注册邀请码无效或已使用"
                         error.status == 401 -> "登录已失效，请重新登录"
                         error.status == 403 -> "当前设备未获授权，或设备签名已失效"
@@ -69,6 +71,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             if (!foreground) withContext(Dispatchers.IO) { repository?.lock() }
+            if (repository?.role() != "manager") devices = emptyList()
             val snapshot = withContext(Dispatchers.IO) { readState() }
             mutable.value = if (foreground) snapshot.copy(message = message, recovery = materials ?: emptyList())
                 else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), importPreview = ImportPreview())
@@ -86,7 +89,8 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     groups[p.optString("groupId")] ?: "未分组", VaultCrypto.totp(p), p.getBoolean("favorite"))
             }
             ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasLocalChanges(), revision = active.revision(), rows = rows,
-                entities = entities, canEdit = active.role() == "manager" && !active.hasPending(),
+                entities = entities, canEdit = active.role() == "manager" && !active.hasPending(), deviceId = active.deviceId(),
+                devices = if (foreground && active.role() == "manager") devices else emptyList(),
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
@@ -97,6 +101,23 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun upload(origin: String, user: String) = perform(origin, user) { it.upload(); null }
     fun refresh(origin: String, user: String) = perform(origin, user) { it.refresh(); null }
     fun logout(origin: String, user: String) = perform(origin, user) { it.logout(); null }
+    fun loadDevices(origin: String, user: String) = perform(origin, user) { devices = it.devices(); null }
+    fun updateDevice(origin: String, user: String, id: String, approve: Boolean) = perform(origin, user) {
+        it.updateDevice(id, approve); devices = if (it.role() == "manager") it.devices() else emptyList(); null
+    }
+    fun changePassword(origin: String, user: String, old: String, next: String) = perform(origin, user) {
+        it.changePassword(old, next); devices = emptyList(); null
+    }
+    fun prepareRecoveryCodes(origin: String, user: String) = perform(origin, user) {
+        require(it.role() == "manager") { "当前设备没有管理权限" }; accountRecoveryCodes()
+    }
+    fun rotateRecoveryCodes(origin: String, user: String, saved: Boolean) {
+        val codes = mutable.value.recovery.toList()
+        perform(origin, user) { it.rotateRecoveryCodes(codes, saved); null }
+    }
+    fun recover(origin: String, user: String, code: String, password: String, confirmed: Boolean) = perform(origin, user) {
+        it.recover(code, password, confirmed); devices = emptyList(); null
+    }
     fun prepare(origin: String, user: String, password: String) = perform(origin, user) {
         val recovery = it.prepareRegistration(password)
         listOf("保险库恢复密钥：", recovery.first, "账号恢复码（每个只能用一次）：") + recovery.second
@@ -135,7 +156,8 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
 
     fun lock() {
         synchronized(this) { imports = ImportSession() }
-        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), importPreview = ImportPreview())
+        devices = emptyList()
+        mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), devices = emptyList(), importPreview = ImportPreview())
         viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
     }
     fun onHidden() { foreground = false; lock() }

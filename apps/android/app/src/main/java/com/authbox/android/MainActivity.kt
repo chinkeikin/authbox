@@ -42,6 +42,8 @@ class MainActivity : ComponentActivity() {
     var existing by remember { mutableStateOf(false) }
     var registration by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
+    var recovery by remember { mutableStateOf(false) }
     var pendingImages by remember { mutableStateOf(emptyList<Uri>()) }
     val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> pendingImages = selected }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -62,8 +64,15 @@ class MainActivity : ComponentActivity() {
             model.importImages(origin, username, selected)
         }
     }
+    if (settings) {
+        AccountSecurityScreen(state, { settings = false }, { model.loadDevices(origin, username) },
+            { id, approve -> model.updateDevice(origin, username, id, approve) },
+            { old, next -> model.changePassword(origin, username, old, next) },
+            { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) })
+        return
+    }
     if (state.unlocked) {
-        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }) {
+        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }) {
             ImportControls(state, state.importPreview, { model.importQr(origin, username, it) }, { images.launch("image/*") },
                 { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport)
         }
@@ -72,6 +81,8 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.safeDrawingPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
         Text("Android 开发版", style = MaterialTheme.typography.labelLarge)
+        TextButton({ settings = true }, enabled = !state.busy) { Text("账号与设备") }
+        TextButton({ recovery = true }, enabled = !state.busy) { Text("用账号恢复码恢复") }
         if (pendingImages.isNotEmpty()) Text("已选择 ${pendingImages.size} 张图片，解锁后在本机解析；新的图片选择会替换当前导入预览。")
         OutlinedTextField(origin, { origin = it }, label = { Text("服务地址（https://…）") }, singleLine = true, enabled = !state.busy)
         OutlinedTextField(username, { username = it }, label = { Text("平台账号") }, singleLine = true, enabled = !state.busy)
@@ -116,5 +127,8 @@ class MainActivity : ComponentActivity() {
             Button(onClick = { val secret = password; val code = invite; password = ""; invite = ""; model.register(origin, username, secret, code, saved) },
                 enabled = !state.busy && saved && state.recovery.isNotEmpty()) { Text("确认注册") }
         }
+    }
+    if (recovery) AccountRecoveryDialog(state.busy, { recovery = false }) { code, next, confirmed ->
+        recovery = false; model.recover(origin, username, code, next, confirmed)
     }
 }

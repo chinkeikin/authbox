@@ -1,6 +1,6 @@
 # AuthBox 账号与同步服务
 
-运行于 Workers Free + SQLite Durable Objects，安装级 `InstallationStore` 是唯一数据源。提供自定义用户名密码、设备授权、可撤销会话、账号恢复和完整密文快照同步。不依赖 D1/R2、Google、短信或 NAS 在线。当前为服务基础，Android/Chrome 界面、Google 绑定和 NAS 专用备份凭据尚未实现。
+运行于 Workers Free + SQLite Durable Objects，安装级 `InstallationStore` 是唯一数据源。提供自定义用户名密码、设备授权、可撤销会话、账号恢复和完整密文快照同步。不依赖 D1/R2、Google、短信或 NAS 在线。Android 已接入登录与加密同步，账号安全界面进度见[验证记录](../../docs/android-security-results.md)；Chrome、Google 绑定和 NAS 专用备份凭据尚未实现。
 
 ## 构建与验证
 
@@ -83,4 +83,4 @@ device 固定为 `{id: UUID, name, publicKey: {kty:"EC", crv:"P-256", x, y}}`，
 
 典型错误：401（需重新登录或凭据错误）、403（无权或设备证明失败）、409（版本/幂等/nonce 冲突或设备不能审批）、410（需完整重拉）、413（HTTP 体过大）、429（限速/忙）、507（应用存储容量）。未知异常只返回 internal_error，不回传 SQL、堆栈或秘密。服务端不能解密业务字段，也不能证明一个有格式和摘要的备份内容有效，客户端必须执行 AEAD 认证和业务 schema 检查。
 
-验收证据见 [服务验证记录](../../docs/api-results.md)。暂未实现 Google 绑定、NAS backup_reader 凭据与其撤销、用户删除、正式客户端安全存储和完整发布运维；这些不标记为已完成。
+验收证据见 [服务验证记录](../../docs/api-results.md)。暂未实现 Google 绑定、NAS backup_reader 凭据与其撤销、用户删除、Chrome 安全存储和完整发布运维；Android Keystore 应用存储已有独立真机记录，不能替代系统便捷解锁和完整恢复验收。

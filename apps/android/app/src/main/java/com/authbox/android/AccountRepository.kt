@@ -65,6 +65,17 @@ class ApiClient(val origin: String, private val headers: Map<String, String> = e
 internal fun accountNamespace(origin: String, username: String): String = "authbox.account." + MessageDigest.getInstance("SHA-256")
     .digest("$origin/$username".toByteArray()).take(12).joinToString("") { "%02x".format(it) }
 
+data class DeviceInfo(val id: String, val name: String, val role: String, val revoked: Boolean, val hasKey: Boolean)
+
+internal fun accountRecoveryCodes(): List<String> = (1..8).map { "ABAC1-" + b64(randomBytes(16)) }
+internal fun recoveryHashes(codes: List<String>): JSONArray {
+    require(codes.size == 8 && codes.toSet().size == 8)
+    return JSONArray().apply { codes.forEach {
+        require(it.startsWith("ABAC1-") && unb64(it.removePrefix("ABAC1-")).size == 16)
+        put(sha(("AuthBox/account-recovery/v1/" + it).toByteArray(Charsets.UTF_8)))
+    } }
+}
+
 class AccountRepository(context: Context, val api: ApiClient, val username: String, testNamespace: String? = null) {
     init { require(username.matches(Regex("[a-z][a-z0-9_]{2,31}"))) }
     private val namespace = testNamespace ?: accountNamespace(api.origin, username)
@@ -87,6 +98,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     private fun session(): JSONObject = state.optJSONObject("auth") ?: throw IllegalStateException("请先登录")
     private fun access(): String = session().getJSONObject("session").getString("accessToken")
     @Synchronized fun role(): String? = state.optJSONObject("auth")?.getJSONObject("device")?.getString("role")
+    @Synchronized fun deviceId(): String = state.getString("identityId")
     @Synchronized fun revision(): Long? = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it).getLong("revision") }
     @Synchronized fun hasPending(): Boolean = state.has("pending")
     @Synchronized fun hasDraft(): Boolean = state.has("draft")
@@ -99,7 +111,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         canonical(password); require(password.toByteArray(Charsets.UTF_8).size in 8..256)
     }
 
-    private fun acceptAuth(encoded: String) {
+    private fun acceptAuth(encoded: String, expectedDeviceId: String = deviceId()) {
         val auth = JSONObject(encoded)
         fields(auth, "user", "device", "session")
         val user = auth.getJSONObject("user"); val device = auth.getJSONObject("device"); val tokens = auth.getJSONObject("session")
@@ -111,9 +123,8 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         }
         require(tokens.getString("accessToken").split('.')[1] == tokens.getString("refreshToken").split('.')[1])
         for (field in listOf("accessExpiresAt", "refreshExpiresAt", "absoluteExpiresAt")) number(tokens, field)
-        require(device.getString("role") != "manager" || device.getString("id") == state.getString("identityId"))
-        val next = state.copy().put("auth", auth)
-        if (device.getString("role") == "reader") next.put("identityId", device.getString("id"))
+        require(device.getString("role") != "manager" || device.getString("id") == expectedDeviceId)
+        val next = state.copy().put("auth", auth).put("identityId", device.getString("id"))
         save(next)
     }
 
@@ -132,32 +143,34 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         return obj("id" to id, "signature" to box.sign(payload))
     }
 
-    private fun publicProof(operation: String, context: JSONObject, invite: String? = null): JSONObject {
+    private fun publicProof(operation: String, context: JSONObject, invite: String? = null, deviceId: String = deviceId()): JSONObject {
         val hash = digest(context)
         val challenge = JSONObject(api.request("/v1/auth/challenge", obj("operation" to operation, "username" to username,
-            "deviceId" to state.getString("identityId"), "requestHash" to hash, "invite" to invite)))
-        return checkedProof(challenge, operation, hash, username, state.getString("identityId"), "")
+            "deviceId" to deviceId, "requestHash" to hash, "invite" to invite)))
+        return checkedProof(challenge, operation, hash, username, deviceId, "")
     }
 
     @Synchronized fun login(password: String, existingDevice: Boolean = true) {
         checkLoginPassword(password)
         lock()
         if (state.optBoolean("refreshUncertain")) save(state.copy().apply { remove("auth"); remove("refreshUncertain") })
+        val identity = state.optString("recoveryDeviceId").takeIf { it.isNotEmpty() } ?: deviceId()
         val encoded = if (existingDevice) {
-            val context = obj("username" to username, "deviceId" to state.getString("identityId"))
-            val proof = publicProof("auth.device-login", context)
+            val context = obj("username" to username, "deviceId" to identity)
+            val proof = publicProof("auth.device-login", context, deviceId = identity)
             api.request("/v1/auth/device-login", context.put("password", password).put("proof", proof))
         } else api.request("/v1/auth/login", obj("username" to username, "password" to password,
             "deviceName" to "AuthBox Android", "publicKey" to box.publicKey()))
-        acceptAuth(encoded)
+        acceptAuth(encoded, identity)
+        save(state.copy().apply { remove("recoveryDeviceId") })
     }
 
     @Synchronized fun prepareRegistration(vaultPassword: String): Pair<String, List<String>> {
         require(!state.has("auth"))
         val created = VaultCrypto.create(vaultPassword)
         try {
-            val codes = (1..8).map { "ABAC1-" + b64(randomBytes(16)) }
-            val hashes = JSONArray().apply { codes.forEach { put(sha(("AuthBox/account-recovery/v1/" + it).toByteArray())) } }
+            val codes = accountRecoveryCodes()
+            val hashes = recoveryHashes(codes)
             val registration = obj("backup" to canonical(created.vault.snapshot), "recoveryHashes" to hashes)
             save(state.copy().put("registration", registration))
             return created.recoveryKey to codes
@@ -193,6 +206,113 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         require(!state.optBoolean("refreshUncertain")) { "请重新登录以恢复会话" }
         if (session().getJSONObject("session").getLong("accessExpiresAt") <= System.currentTimeMillis() + 30000) refresh()
         return access()
+    }
+
+    private fun managerAccess(): String {
+        require(role() == "manager") { "当前设备没有管理权限" }
+        return freshAccess()
+    }
+
+    private fun managementProof(operation: String, payload: JSONObject, token: String): JSONObject {
+        val hash = digest(payload)
+        val challenge = JSONObject(api.request("/v1/challenges", obj("operation" to operation, "requestHash" to hash), token))
+        return sessionProof(challenge, operation, hash, token)
+    }
+
+    private fun sessionProof(challenge: JSONObject, operation: String, hash: String, token: String): JSONObject {
+        val auth = session()
+        return checkedProof(challenge, operation, hash, auth.getJSONObject("user").getString("id"),
+            auth.getJSONObject("device").getString("id"), token.split('.')[1])
+    }
+
+    @Synchronized fun devices(): List<DeviceInfo> {
+        val response = JSONObject(api.request("/v1/devices", access = managerAccess()))
+        fields(response, "devices")
+        val devices = response.getJSONArray("devices")
+        require(devices.length() <= 200)
+        return (0 until devices.length()).map { index ->
+            val entry = devices.getJSONObject(index)
+            fields(entry, "id", "name", "role", "revoked", "hasKey")
+            val id = text(entry, "id"); uuid(id)
+            val role = text(entry, "role"); require(role in setOf("reader", "manager"))
+            val revoked = number(entry, "revoked", 0); val key = number(entry, "hasKey", 0)
+            require(revoked in 0L..1L && key in 0L..1L)
+            DeviceInfo(id, text(entry, "name"), role, revoked == 1L, key == 1L)
+        }.also { require(it.map { device -> device.id }.toSet().size == it.size) }
+    }
+
+    @Synchronized fun updateDevice(id: String, approve: Boolean) {
+        uuid(id)
+        val token = managerAccess()
+        val payload = obj("deviceId" to id)
+        val operation = if (approve) "device.approve" else "device.revoke"
+        val proof = managementProof(operation, payload, token)
+        val response = JSONObject(api.request(if (approve) "/v1/devices/approve" else "/v1/devices/revoke", obj("payload" to payload, "proof" to proof), token))
+        require(response.getBoolean("updated"))
+        if (!approve && id == deviceId()) {
+            save(state.copy().apply { remove("auth"); remove("refreshUncertain") })
+            lock()
+        }
+    }
+
+    @Synchronized fun changePassword(currentPassword: String, newPassword: String) {
+        checkLoginPassword(currentPassword); checkLoginPassword(newPassword)
+        val token = managerAccess()
+        val challenge = JSONObject(api.request("/v1/account/password/prepare", obj("currentPassword" to currentPassword, "newPassword" to newPassword), token))
+        val hash = JSONArray(challenge.getString("payload")).getString(9)
+        require(unb64(hash).size == 32)
+        val proof = sessionProof(challenge, "password.change", hash, token)
+        save(state.copy().put("refreshUncertain", true))
+        try {
+            acceptAuth(api.request("/v1/account/password/confirm", obj("proof" to proof), token))
+            save(state.copy().apply { remove("refreshUncertain") })
+        } catch (error: Exception) {
+            lock()
+            throw IllegalStateException("密码修改结果未确认，请保留新旧密码并重新登录；本地数据已保留", error)
+        }
+    }
+
+    @Synchronized fun rotateRecoveryCodes(codes: List<String>, saved: Boolean) {
+        require(saved) { "请先离线保存新恢复码" }
+        val payload = obj("hashes" to recoveryHashes(codes))
+        val token = managerAccess()
+        val proof = managementProof("recovery.rotate", payload, token)
+        try {
+            require(JSONObject(api.request("/v1/account/recovery/rotate", obj("payload" to payload, "proof" to proof), token)).getBoolean("rotated"))
+        } catch (error: Exception) {
+            throw IllegalStateException("恢复码轮换未确认，请保留新旧恢复码；联网后重新生成一组并确认轮换", error)
+        }
+    }
+
+    @Synchronized fun recover(code: String, password: String, confirmed: Boolean) {
+        require(confirmed) { "请确认恢复将撤销全部旧设备和会话" }
+        checkLoginPassword(password)
+        require(code.startsWith("ABAC1-") && unb64(code.removePrefix("ABAC1-")).size == 16) { "账号恢复码格式不正确" }
+        lock()
+        val identity = UUID.randomUUID().toString()
+        save(state.copy().put("recoveryDeviceId", identity))
+        val context = obj("username" to username, "device" to obj("id" to identity, "name" to "AuthBox Android recovered", "publicKey" to box.publicKey()))
+        var submitted = false
+        try {
+            val proof = publicProof("auth.recover", context, deviceId = identity)
+            submitted = true
+            acceptAuth(api.request("/v1/auth/recover", context.put("code", code).put("password", password).put("proof", proof)), identity)
+            save(state.copy().apply { remove("recoveryDeviceId"); remove("refreshUncertain") })
+        } catch (error: ApiFailure) {
+            if (submitted && error.status >= 500) {
+                save(state.copy().put("refreshUncertain", true))
+                throw IllegalStateException("恢复结果未确认，请先使用新密码与本机已有设备身份登录；不要反复消耗恢复码", error)
+            }
+            save(state.copy().apply { remove("recoveryDeviceId") })
+            throw error
+        } catch (error: Exception) {
+            if (!submitted) {
+                save(state.copy().apply { remove("recoveryDeviceId") })
+                throw error
+            }
+            save(state.copy().put("refreshUncertain", true))
+            throw IllegalStateException("恢复结果未确认，请先使用新密码与本机已有设备身份登录；不要反复消耗恢复码", error)
+        }
     }
 
     @Synchronized fun download(vaultPassword: String) {

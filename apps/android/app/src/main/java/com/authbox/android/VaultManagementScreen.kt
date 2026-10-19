@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 @Composable internal fun VaultManagementScreen(state: ScreenState, onLock: () -> Unit, onSync: () -> Unit,
-    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, importContent: (@Composable () -> Unit)? = null) {
+    edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, importContent: (@Composable () -> Unit)? = null) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf<String?>(null) }
     var tag by remember { mutableStateOf<String?>(null) }
@@ -57,7 +57,10 @@ import org.json.JSONObject
     }.sortedWith(compareBy({ groupOrder[it.payload.optString("groupId")] ?: -1 }, { it.payload.getLong("order") }, { it.id }))
     LaunchedEffect(state.entities) { selected = selected.intersect(state.entities.filter { it.type == "account" }.map { it.id }.toSet()) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("AuthBox", style = MaterialTheme.typography.headlineLarge)
+            if (onSettings != null) TextButton(onSettings) { Text("账号与设备") }
+        }
         Text(if (state.pending) "修改已加密保存在本机，等待同步" else "云端版本 ${state.revision ?: "—"}")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onLock) { Text("锁定") }
