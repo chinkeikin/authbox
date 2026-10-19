@@ -445,7 +445,10 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         } finally { candidate.close() }
     }
 
-    @Synchronized fun upload() {
+    @Synchronized fun upload() = uploadWhile { true }
+
+    private fun uploadWhile(allowed: () -> Boolean) {
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         require(role() == "manager") { "当前设备只有只读权限" }
         require(!hasReview()) { "请先确认或取消当前比较" }
         if (!hasPending() && hasDraft()) {
@@ -460,11 +463,14 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         }
         val pending = state.getJSONObject("pending").copy()
         val hash = digest(pending)
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         val token = freshAccess()
         val auth = session()
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         val challenge = JSONObject(api.request("/v1/challenges", obj("operation" to "sync.commit", "requestHash" to hash), token))
         val proof = checkedProof(challenge, "sync.commit", hash, auth.getJSONObject("user").getString("id"),
             auth.getJSONObject("device").getString("id"), token.split('.')[1])
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         val response = try { JSONObject(api.request("/v1/vault/commit", obj("payload" to pending, "proof" to proof), token)) }
         catch (error: ApiFailure) {
             if (error.status == 409 && error.code == "revision_conflict") { save(state.copy().put("conflictDetected", true)); throw SyncConflict() }
@@ -477,14 +483,20 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         unlocked?.snapshot = snapshot
     }
 
-    @Synchronized fun synchronize(): SyncResult {
+    @Synchronized fun synchronize(): SyncResult = synchronize { true }
+
+    @Synchronized fun synchronize(allowed: () -> Boolean): SyncResult {
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         require(canSync()) { "请先解锁并处理会话、冲突或比较" }
         if (hasPending()) {
-            upload()
+            uploadWhile(allowed)
             return SyncResult.UPLOADED
         }
         val prior = VaultCrypto.inspect(state.getString("backup"))
-        val head = JSONObject(api.request("/v1/vault/head", access = freshAccess()))
+        val token = freshAccess()
+        require(allowed()) { "同步已暂停，本地内容已保留" }
+        val head = JSONObject(api.request("/v1/vault/head", access = token))
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         fields(head, "vaultId", "revision", "keyGeneration")
         val revision = number(head, "revision")
         val generation = number(head, "keyGeneration")
@@ -498,12 +510,13 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
                 save(state.copy().put("conflictDetected", true))
                 throw SyncConflict()
             }
-            upload()
+            uploadWhile(allowed)
             return SyncResult.UPLOADED
         }
         if (revision == prior.getLong("revision")) return SyncResult.CURRENT
         if (generation != prior.getLong("keyGeneration")) throw SyncUnlockRequired()
         val encoded = api.request("/v1/vault/snapshot?revision=$revision", access = freshAccess())
+        require(allowed()) { "同步已暂停，本地内容已保留" }
         require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "服务响应过大" }
         val header = VaultCrypto.inspect(encoded)
         checkRemote(header)

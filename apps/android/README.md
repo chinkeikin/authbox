@@ -93,6 +93,16 @@ adb -s <PHB110序列号> shell am instrument -w -e class com.authbox.android.Key
 
 `npm run verify:android:app:cloud` 需要本机忽略的 `.env.cloudflare`、`JAVA_HOME`、`ANDROID_HOME`、`AUTHBOX_ANDROID_SERIAL`、已授权测试区 `AUTHBOX_CF_TEST_ZONE` 和空闲子域 `AUTHBOX_CF_TEST_HOST`。它确认免费套餐，创建临时 SQLite DO 和 Worker，生成仅测试 APK 可读的配置，执行账号、管理、封装与离线副本接入联调后清理资源。`--cleanup --android` 可按同一报告重试云端清理。测试 APK 不应作为日用安装；联调完成后可卸载 `com.authbox.android.test`。
 
+## 自动同步
+
+自动同步默认开启，可在“账号与设备”中暂停或启用、查看状态及上次检查时间，或点“立即检查并同步”。只在已登录并解锁的保险库前台自动运行；解锁后、修改后与网络恢复后提前检查，空闲时每 60 秒检查一次。后台不执行定时同步，返回后仍须重新解锁。
+
+不保留保险库密码，使用当前内存主密钥认证新快照；只有本地无修改才自动拉取。主密钥代次变化、身份/版本或密文异常时暂停，保留本机内容并提示手动下载解锁或检查。本地草稿落后则进入“冲突与历史”，不会自动覆盖或改写双方内容；固定待确认请求重试使用原 operationId。
+
+编辑、批量选择、导入预览、比较、文件和恢复材料展示期间暂停自动调度。网络失败、服务 5xx、408 或 429 采用 5 秒起、最多 5 分钟的随机指数退避，网络反复切换不绕过退避；认证/授权失效则锁定并要求重新登录。网络恢复指系统报告默认网络具备 Internet 且已通过连通性验证，服务地址仍可能单独不可达。
+
+安装开发和测试 APK 后，运行 `npm run verify:android:app:auto-sync` 执行存储、真实界面及锁定竞态测试。真实免费云端联调含自动同步及多设备冲突检查，结果见[自动同步记录](../../docs/android-auto-sync-results.md)。
+
 本步骤固定已验证的工具链与依赖；Lint 关于较新目标 SDK 和依赖版本的提醒保留，发布前另行升级与兼容性验证。实际结果见 [真机记录](../../docs/android-results.md)。
 
 依赖许可见 APK assets/THIRD_PARTY_NOTICES.txt；不需要 Google Play 服务或付费 SDK。当前仅开发签名，不包含发布签名与生产服务地址。

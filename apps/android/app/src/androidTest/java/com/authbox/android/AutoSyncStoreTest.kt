@@ -5,6 +5,7 @@ import android.content.Intent
 import android.view.WindowManager
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -101,6 +102,32 @@ class AutoSyncStoreTest {
                 repo.unlock(test.password)
                 assertThrows(SyncUnlockRequired::class.java) { repo.synchronize() }
                 assertEquals(prior, canonical(test.saved()))
+            } finally { repo.dispose() }
+        }
+    }
+
+    @Test fun pauseAfterChallengeKeepsFixedRequestAndPreventsCommit() {
+        ReviewFixture().use { test ->
+            test.api.remote = test.source; test.api.headRevision = 1
+            test.repository.edit { it.single { row -> row.type == "group" }.payload.put("name", "公开暂停请求") }
+            test.repository.dispose()
+            val allowed = AtomicBoolean(true); val pauseOnce = AtomicBoolean(true)
+            val api = object : ApiClient(test.api.origin) {
+                override fun request(path: String, body: JSONObject?, access: String?): String {
+                    val response = test.api.request(path, body, access)
+                    if (path == "/v1/challenges" && pauseOnce.compareAndSet(true, false)) allowed.set(false)
+                    return response
+                }
+            }
+            val repo = AccountRepository(test.context, api, "review_user", test.namespace)
+            try {
+                repo.unlock(test.password)
+                assertThrows(IllegalArgumentException::class.java) { repo.synchronize { allowed.get() } }
+                assertNull(test.api.lastCommit); assertTrue(repo.hasPending())
+                val pending = canonical(test.saved().getJSONObject("pending"))
+                allowed.set(true)
+                assertEquals(SyncResult.UPLOADED, repo.synchronize { allowed.get() })
+                assertEquals(pending, canonical(test.api.lastCommit!!)); assertFalse(repo.hasLocalChanges())
             } finally { repo.dispose() }
         }
     }

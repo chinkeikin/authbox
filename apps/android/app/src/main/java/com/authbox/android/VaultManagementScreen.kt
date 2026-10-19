@@ -26,7 +26,7 @@ import org.json.JSONObject
 
 @Composable internal fun VaultManagementScreen(state: ScreenState, onLock: () -> Unit, onSync: () -> Unit,
     edit: ((MutableList<VaultEntity>) -> Unit) -> Unit, onSettings: (() -> Unit)? = null, settingsLabel: String = "账号与设备",
-    onReview: (() -> Unit)? = null, importContent: (@Composable () -> Unit)? = null) {
+    onReview: (() -> Unit)? = null, onInteraction: ((Boolean) -> Unit)? = null, importContent: (@Composable () -> Unit)? = null) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf<String?>(null) }
     var tag by remember { mutableStateOf<String?>(null) }
@@ -38,6 +38,10 @@ import org.json.JSONObject
     var categories by remember { mutableStateOf(false) }
     var bulk by remember { mutableStateOf(false) }
     var confirmTrash by remember { mutableStateOf(false) }
+    DisposableEffect(adding, accountEditor, categories, bulk, confirmTrash, selected.isNotEmpty()) {
+        onInteraction?.invoke(adding || accountEditor != null || categories || bulk || confirmTrash || selected.isNotEmpty())
+        onDispose { onInteraction?.invoke(false) }
+    }
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val groups = state.entities.filter { it.type == "group" }.sortedWith(compareBy({ it.payload.getLong("order") }, { it.id }))
@@ -71,7 +75,7 @@ import org.json.JSONObject
             if (state.role != "offline") Button(onSync, enabled = !state.busy && state.pending && !state.hasReview && state.role == "manager") { Text("同步修改") }
             TextButton({ categories = true }, enabled = editable) { Text("分组与标签") }
         }
-        Text(state.message)
+        Text(if (state.role == "offline") state.message else "${state.message}\n${state.autoSync.message}", style = MaterialTheme.typography.bodySmall)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         OutlinedTextField(query, { query = it }, label = { Text("搜索账号或分组") }, supportingText = { Text("也可搜索备注和标签") }, singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }), modifier = Modifier.fillMaxWidth())

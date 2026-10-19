@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.net.Uri
+import android.os.SystemClock
 
 data class AccountRow(val id: String, val title: String, val account: String, val group: String, val code: String, val favorite: Boolean)
 data class ScreenState(val busy: Boolean = false, val message: String = "请配置服务地址并登录", val role: String? = null,
@@ -19,13 +20,21 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val importPreview: ImportPreview = ImportPreview(), val deviceId: String? = null, val devices: List<DeviceInfo> = emptyList(), val preparedExport: String? = null,
     val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null,
     val history: HistoryPage? = null, val review: ReviewView? = null, val savedVersions: List<SavedVersionInfo> = emptyList(),
-    val hasReview: Boolean = false, val conflict: Boolean = false)
+    val hasReview: Boolean = false, val conflict: Boolean = false, val syncReady: Boolean = false,
+    val autoSync: AutoSyncInfo = AutoSyncInfo())
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
+    private val syncPreferences = application.getSharedPreferences("sync", 0)
+    private val schedule = SyncSchedule()
+    @Volatile private var syncEnabled = syncPreferences.getBoolean("enabled", true)
+    private var online = false
+    private var screenAllowsSync = false
+    private var interacting = false
+    private val network = SyncNetwork(application, ::networkChanged)
     val initialOrigin: String = preferences.getString("origin", "") ?: ""
     val initialUsername: String = preferences.getString("username", "") ?: ""
-    private val mutable = MutableStateFlow(ScreenState())
+    private val mutable = MutableStateFlow(ScreenState(autoSync = AutoSyncInfo(enabled = syncEnabled)))
     val state = mutable.asStateFlow()
     @Volatile private var repository: AccountRepository? = null
     @Volatile private var foreground = true
@@ -37,10 +46,11 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     @Volatile private var preparedExport: String? = null
 
     init {
+        network.start()
         if (initialOrigin.isNotBlank() && initialUsername.isNotBlank()) perform(initialOrigin, initialUsername) { null }
     }
 
-    private fun perform(origin: String, username: String, operation: (AccountRepository) -> List<String>?) {
+    private fun perform(origin: String, username: String, resumeSync: Boolean = false, operation: (AccountRepository) -> List<String>?) {
         if (mutable.value.busy) return
         val epoch = generation
         registrationMaterialId = null
@@ -48,10 +58,13 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             var message = "操作完成"
             var materials: List<String>? = null
+            var success = false
+            var switched = false
             try {
                 withContext(Dispatchers.IO) {
                     var active = repository
                     if (active == null || active.api.origin != origin || active.username != username) {
+                        switched = true
                         active?.dispose()
                         synchronized(this@AuthBoxViewModel) { imports = ImportSession() }
                         devices = emptyList()
@@ -64,6 +77,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     try { materials = operation(active) }
                     finally { if (!foreground || epoch != generation) active.lock() }
                 }
+                success = true
             } catch (error: Exception) {
                 message = when (error) {
                     is ApiFailure -> when {
@@ -90,6 +104,10 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             mutable.value = if (foreground && epoch == generation) snapshot.copy(message = message, recovery = materials ?: emptyList())
                 else snapshot.copy(message = message, unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null,
                     history = null, review = null, savedVersions = emptyList(), importPreview = ImportPreview())
+            if (switched) mutable.value = mutable.value.copy(autoSync = AutoSyncInfo(enabled = syncEnabled))
+            if (switched || (success && resumeSync)) schedule.reset(SystemClock.elapsedRealtime())
+            else if (success) schedule.wake(SystemClock.elapsedRealtime())
+            updateSyncStatus()
         }
     }
 
@@ -110,14 +128,14 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                 registration = active.registrationInfo(), registrationMaterialId = if (foreground) registrationMaterialId else null,
                 history = if (foreground && active.isUnlocked()) history else null, review = if (foreground) active.reviewView() else null,
                 savedVersions = if (foreground && active.role() == "manager" && active.isUnlocked()) active.savedVersions() else emptyList(),
-                hasReview = active.hasReview(), conflict = active.hasConflict(),
+                hasReview = active.hasReview(), conflict = active.hasConflict(), syncReady = active.canSync(), autoSync = mutable.value.autoSync,
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
 
-    fun login(origin: String, user: String, password: String, existing: Boolean) = perform(origin, user) { it.login(password, existing); null }
-    fun download(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user) { it.download(password, purpose); null }
-    fun unlock(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user) { it.unlock(password, purpose); null }
+    fun login(origin: String, user: String, password: String, existing: Boolean) = perform(origin, user, true) { it.login(password, existing); null }
+    fun download(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user, true) { it.download(password, purpose); null }
+    fun unlock(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user, true) { it.unlock(password, purpose); null }
     fun prepareBackupExport(origin: String, user: String) = perform(origin, user) { preparedExport = it.exportBackup(); null }
     fun clearBackupExport() { preparedExport = null; mutable.value = mutable.value.copy(preparedExport = null) }
     fun rewrap(origin: String, user: String, secret: String, purpose: String, saved: Boolean = true) = perform(origin, user) { it.rewrap(secret, purpose, saved); null }
@@ -134,7 +152,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun prepareReview(origin: String, user: String, secret: String, purpose: String, revision: Long? = null, oldSecret: String? = null, oldPurpose: String = "password") = perform(origin, user) {
         it.prepareReview(secret, purpose, revision, oldSecret, oldPurpose); null
     }
-    fun confirmReview(origin: String, user: String, id: String, source: Boolean, confirmed: Boolean) = perform(origin, user) {
+    fun confirmReview(origin: String, user: String, id: String, source: Boolean, confirmed: Boolean) = perform(origin, user, true) {
         it.confirmReview(id, source, confirmed); history = null; null
     }
     fun cancelReview(origin: String, user: String) = perform(origin, user) { it.cancelReview(); null }
@@ -221,10 +239,89 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null,
             history = null, review = null, savedVersions = emptyList(), devices = emptyList(), importPreview = ImportPreview())
         viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
+        updateSyncStatus()
     }
-    fun onHidden() { foreground = false; lock() }
-    fun onVisible() { foreground = true }
+    fun onHidden() { foreground = false; network.close(); lock() }
+    fun onVisible() { foreground = true; network.start(); schedule.wake(SystemClock.elapsedRealtime()); updateSyncStatus() }
+    internal fun networkChanged(connected: Boolean) {
+        if (connected && !online) schedule.wake(SystemClock.elapsedRealtime())
+        online = connected
+        updateSyncStatus()
+    }
+    fun setSyncScreenAllowed(allowed: Boolean) { screenAllowsSync = allowed }
+    fun setSyncInteraction(active: Boolean) { interacting = active }
+    fun setAutoSync(enabled: Boolean) {
+        syncEnabled = enabled
+        syncPreferences.edit().putBoolean("enabled", enabled).apply()
+        if (enabled) schedule.reset(SystemClock.elapsedRealtime())
+        updateSyncStatus()
+    }
+    fun retryAutoSync() { schedule.reset(SystemClock.elapsedRealtime()); automaticSync(requested = true) }
+    private fun updateSyncStatus() {
+        val state = mutable.value
+        val message = when {
+            state.autoSync.running -> "自动同步：正在检查与同步…"
+            !syncEnabled -> "自动同步：已暂停"
+            state.conflict || state.hasReview -> "自动同步：等待处理冲突或比较"
+            schedule.blocked != null -> requireNotNull(schedule.blocked)
+            !foreground || !state.unlocked -> "自动同步：锁定中，解锁后检查"
+            !state.syncReady -> "自动同步：请先重新登录以恢复会话"
+            !online -> "自动同步：无可用网络，修改保存在本机"
+            !screenAllowsSync || interacting || state.recovery.isNotEmpty() || state.importPreview.received > 0 -> "自动同步：编辑或敏感操作期间暂停"
+            schedule.failures > 0 -> "自动同步：网络或服务暂不可用，${((schedule.nextAttempt - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000} 秒后重试"
+            else -> "自动同步：已启用，前台每 60 秒检查"
+        }
+        mutable.value = state.copy(autoSync = state.autoSync.copy(enabled = syncEnabled, message = message))
+    }
+    private fun automaticSync(requested: Boolean = false) {
+        val before = mutable.value
+        val now = SystemClock.elapsedRealtime()
+        updateSyncStatus()
+        if (!syncEnabled || !foreground || !online || (!screenAllowsSync && !requested) || interacting || before.busy || !before.unlocked ||
+            !before.syncReady || before.recovery.isNotEmpty() || before.importPreview.received > 0 || before.preparedExport != null ||
+            before.registration != null || schedule.blocked != null || (!requested && now < schedule.nextAttempt)) return
+        val active = repository ?: return
+        val epoch = generation
+        mutable.value = before.copy(busy = true, autoSync = before.autoSync.copy(running = true, message = "自动同步：正在检查与同步…"))
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    try {
+                        if (foreground && epoch == generation) active.synchronize { foreground && epoch == generation && syncEnabled } else null
+                    } finally { if (!foreground || epoch != generation) active.lock() }
+                }
+                if (result != null) {
+                    schedule.success(SystemClock.elapsedRealtime())
+                    if (result != SyncResult.CURRENT) history = null
+                    mutable.value = mutable.value.copy(autoSync = mutable.value.autoSync.copy(lastSuccessAt = System.currentTimeMillis()))
+                }
+            } catch (error: Exception) {
+                val retry = error is java.io.IOException || (error is ApiFailure && (error.status >= 500 || error.status in setOf(408, 429)))
+                val message = when {
+                    error is SyncConflict -> "自动同步：等待处理冲突，本地修改已保留"
+                    error is SyncUnlockRequired -> "自动同步：主密钥已变化，请用新密码或恢复密钥下载"
+                    error is ApiFailure && error.status in setOf(401, 403) -> "自动同步：登录或设备授权已失效，请重新登录"
+                    error is IllegalStateException -> "自动同步：会话未确认，请重新登录"
+                    retry -> "自动同步：网络或服务暂不可用"
+                    else -> "自动同步：数据校验或协议异常；本地内容已保留，请手动检查后重试"
+                }
+                if (foreground && epoch == generation && syncEnabled) schedule.failure(SystemClock.elapsedRealtime(), message, retry)
+                if (error is ApiFailure && error.status in setOf(401, 403)) {
+                    lock()
+                    withContext(Dispatchers.IO) { active.lock() }
+                }
+            }
+            if (!foreground || epoch != generation) withContext(Dispatchers.IO) { active.lock() }
+            val snapshot = withContext(Dispatchers.IO) { readState() }
+            val current = mutable.value
+            mutable.value = if (foreground && epoch == generation) snapshot.copy(message = current.message, recovery = current.recovery,
+                autoSync = current.autoSync.copy(running = false))
+            else current.copy(busy = false, autoSync = current.autoSync.copy(running = false))
+            updateSyncStatus()
+        }
+    }
     fun tick() {
+        automaticSync()
         if (!foreground || mutable.value.busy || !mutable.value.unlocked) return
         val current = mutable.value
         val accounts = current.entities.filter { it.type == "account" }.associateBy { it.id }
@@ -233,6 +330,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     }
     override fun onCleared() {
         foreground = false
+        network.close()
         CoroutineScope(Dispatchers.IO).launch { repository?.dispose() }
     }
 }

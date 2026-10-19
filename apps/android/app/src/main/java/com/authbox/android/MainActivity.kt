@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
     var pendingImages by remember { mutableStateOf(emptyList<Uri>()) }
     val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> pendingImages = selected }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    SideEffect { model.setSyncScreenAllowed(!settings && !files && !syncReview && !recovery && !registration) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
@@ -121,11 +122,11 @@ class MainActivity : ComponentActivity() {
             { id, approve -> model.updateDevice(origin, username, id, approve) },
             { old, next -> model.changePassword(origin, username, old, next) },
             { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) },
-            { settings = false; files = true })
+            { settings = false; files = true }, model::setAutoSync, model::retryAutoSync)
         return
     }
     if (state.unlocked) {
-        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }, onReview = { syncReview = true }) {
+        VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }, onReview = { syncReview = true }, onInteraction = model::setSyncInteraction) {
             ImportControls(state, state.importPreview, { model.importQr(origin, username, it) }, { images.launch("image/*") },
                 { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport)
         }

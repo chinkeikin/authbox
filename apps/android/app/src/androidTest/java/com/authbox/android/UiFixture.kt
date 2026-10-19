@@ -25,6 +25,8 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
     private val preferences = context.getSharedPreferences("endpoint", 0)
     private val previousOrigin = preferences.getString("origin", null)
     private val previousUsername = preferences.getString("username", null)
+    private val syncPreferences = context.getSharedPreferences("sync", 0)
+    private val previousAutoSync = if (syncPreferences.contains("enabled")) syncPreferences.getBoolean("enabled", true) else null
     private val current = AtomicReference<MainActivity>()
     private val monitor = ActivityLifecycleMonitorRegistry.getInstance()
     private val callback = ActivityLifecycleCallback { activity, stage -> if (activity is MainActivity && stage != Stage.DESTROYED) current.set(activity) }
@@ -40,6 +42,7 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
             box.write("state", canonical(state).toByteArray())
         }
         preferences.edit().putString("origin", origin).putString("username", username).commit()
+        syncPreferences.edit().putBoolean("enabled", false).commit()
         instrumentation.runOnMainSync { monitor.addLifecycleCallback(callback) }
         instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
     }
@@ -58,6 +61,9 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
         var state: BackupState? = null
         instrumentation.runOnMainSync { state = ViewModelProvider(current.get())[BackupViewModel::class.java].state.value }
         return requireNotNull(state)
+    }
+    fun model(action: (AuthBoxViewModel) -> Unit) {
+        instrumentation.runOnMainSync { action(ViewModelProvider(current.get())[AuthBoxViewModel::class.java]) }
     }
     fun attachRepository(api: ApiClient, configure: (JSONObject) -> Unit) {
         compose.waitUntil(10000) { !state().busy && state().deviceId != null }
@@ -82,6 +88,8 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
     override fun close() {
         instrumentation.runOnMainSync { current.get()?.finish(); monitor.removeLifecycleCallback(callback) }
         preferences.edit().putString("origin", previousOrigin).putString("username", previousUsername).commit()
+        if (previousAutoSync == null) syncPreferences.edit().remove("enabled").commit()
+        else syncPreferences.edit().putBoolean("enabled", previousAutoSync).commit()
         File(context.noBackupFilesDir, namespace).deleteRecursively()
         val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         for (suffix in listOf("storage", "device")) if (keys.containsAlias("$namespace.$suffix")) keys.deleteEntry("$namespace.$suffix")

@@ -31,6 +31,7 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [Android 保险库备份与离线恢复记录](docs/android-backup-results.md)
 - [Android 离线副本接入新账号记录](docs/android-registration-results.md)
 - [Android 冲突处理与历史恢复记录](docs/android-sync-review-results.md)
+- [Android 自动同步记录](docs/android-auto-sync-results.md)
 - [许可证说明](docs/licensing.md)
 
 ## 仓库组织

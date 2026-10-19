@@ -36,7 +36,8 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
 
 @Composable internal fun AccountSecurityScreen(state: ScreenState, back: () -> Unit, refresh: () -> Unit,
     update: (String, Boolean) -> Unit, changePassword: (String, String) -> Unit,
-    generate: () -> Unit, rotate: (Boolean) -> Unit, onBackup: (() -> Unit)? = null) {
+    generate: () -> Unit, rotate: (Boolean) -> Unit, onBackup: (() -> Unit)? = null,
+    autoSync: ((Boolean) -> Unit)? = null, retrySync: (() -> Unit)? = null) {
     var password by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<Pair<DeviceInfo, Boolean>?>(null) }
     var saved by remember { mutableStateOf(false) }
@@ -50,6 +51,16 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
         Text(state.message)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.weight(1f).testTag("security"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (autoSync != null) item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("自动同步", Modifier.padding(top = 12.dp))
+                    Switch(state.autoSync.enabled, autoSync, Modifier.testTag("auto-sync-enabled"))
+                }
+                Text(state.autoSync.message, Modifier.testTag("auto-sync-status"))
+                Text("解锁后在保险库前台检查，修改和网络恢复后同步；编辑、导入和比较期间暂停，后台保持锁定。")
+                state.autoSync.lastSuccessAt?.let { Text("上次检查成功：${java.text.DateFormat.getTimeInstance().format(java.util.Date(it))}") }
+                if (retrySync != null) OutlinedButton(retrySync, enabled = !state.busy && state.unlocked && state.autoSync.enabled && !state.conflict && !state.hasReview) { Text("立即检查并同步") }
+            }
             if (onBackup != null) item { OutlinedButton(onBackup) { Text("备份与保险库") } }
             item {
                 Text("本机设备 ID：${state.deviceId ?: "请先登录"}")
