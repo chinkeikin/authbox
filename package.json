@@ -17,6 +17,7 @@
     "verify:android:app:review": "node tools/android/check-review.mjs",
     "verify:android:app:review-ui": "node tools/android/check-review-ui.mjs",
     "verify:android:app:auto-sync": "node tools/android/check-auto-sync.mjs",
+    "verify:android:app:protection": "node tools/android/check-protection.mjs",
     "verify:android:app:cloud": "node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android",
     "verify:worker": "node tools/feasibility/run-worker.mjs",
     "verify:worker:static-wasm": "node tools/feasibility/run-static-wasm.mjs",

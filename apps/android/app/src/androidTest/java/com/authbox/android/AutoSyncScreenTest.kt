@@ -53,8 +53,10 @@ class AutoSyncScreenTest {
             compose.onNodeWithText("账号与设备").performClick()
             val checked = AtomicInteger()
             api.beforeHead = { checked.incrementAndGet() }
+            compose.onNodeWithTag("security").performScrollToNode(hasText("立即检查并同步"))
             compose.onNodeWithText("立即检查并同步").performClick()
             compose.waitUntil(10000) { checked.get() == 1 && !fixture.state().busy }
+            compose.onNodeWithTag("security").performScrollToNode(hasTestTag("auto-sync-enabled"))
             compose.onNodeWithTag("auto-sync-enabled").performClick()
             assertFalse(fixture.state().autoSync.enabled)
             assertFalse(fixture.context.getSharedPreferences("sync", 0).getBoolean("enabled", true))

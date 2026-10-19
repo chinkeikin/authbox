@@ -83,6 +83,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     init { require(username.matches(Regex("[a-z][a-z0-9_]{2,31}"))) }
     private val namespace = testNamespace ?: accountNamespace(api.origin, username)
     private val box = KeystoreBox(context, namespace)
+    private val quick = QuickUnlockStore(context, namespace)
     private var state = box.read("state")?.let { parseObject(decodeUtf8(it)) } ?: obj("version" to 1,
         "origin" to api.origin, "username" to username, "identityId" to UUID.randomUUID().toString())
     private var unlocked: OpenVault? = null
@@ -108,6 +109,21 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun hasDraft(): Boolean = state.has("draft")
     @Synchronized fun hasLocalChanges(): Boolean = hasPending() || hasDraft()
     @Synchronized fun isUnlocked(): Boolean = unlocked != null
+    @Synchronized internal fun quickEnabled(): Boolean = state.has("backup") && quick.enabled(quickBinding(VaultCrypto.inspect(currentEncoded())))
+    @Synchronized internal fun prepareQuick(enable: Boolean): QuickUnlockRequest {
+        require(!hasReview()) { "请先处理当前比较" }
+        val binding = quickBinding(VaultCrypto.inspect(currentEncoded()))
+        return quick.prepare(binding, if (enable) requireNotNull(unlocked) { "请先使用密码解锁保险库" }.vmk else null)
+    }
+    @Synchronized internal fun completeQuick(request: QuickUnlockRequest, cipher: javax.crypto.Cipher) {
+        try {
+            require(request.namespace == namespace && canonical(request.binding) == canonical(quickBinding(VaultCrypto.inspect(currentEncoded())))) { "保险库已变化，请重新认证" }
+            val vmk = request.finish(cipher)
+            val opened = try { VaultCrypto.authenticate(VaultCrypto.inspect(currentEncoded()), vmk) } finally { vmk.fill(0) }
+            lock(); unlocked = opened
+        } finally { request.close() }
+    }
+    @Synchronized internal fun disableQuick() = quick.disable()
     @Synchronized fun lock() { unlocked?.close(); unlocked = null; review?.close(); review = null }
     @Synchronized fun hasReview(): Boolean = state.has("review")
     @Synchronized fun hasConflict(): Boolean = state.optBoolean("conflictDetected")
@@ -530,6 +546,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun logout() {
+        quick.disable()
         api.request("/v1/auth/logout", JSONObject(), freshAccess())
         save(state.copy().apply { remove("auth"); remove("refreshUncertain") })
         lock()

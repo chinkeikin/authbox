@@ -14,6 +14,7 @@ import java.io.File
 import java.security.KeyStore
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
+import android.view.WindowManager
 
 internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolean = true) : AutoCloseable {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -27,9 +28,14 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
     private val previousUsername = preferences.getString("username", null)
     private val syncPreferences = context.getSharedPreferences("sync", 0)
     private val previousAutoSync = if (syncPreferences.contains("enabled")) syncPreferences.getBoolean("enabled", true) else null
+    private val protectionPreferences = context.getSharedPreferences("protection", 0)
+    private val previousProtection = protectionPreferences.all.toMap()
     private val current = AtomicReference<MainActivity>()
     private val monitor = ActivityLifecycleMonitorRegistry.getInstance()
-    private val callback = ActivityLifecycleCallback { activity, stage -> if (activity is MainActivity && stage != Stage.DESTROYED) current.set(activity) }
+    private val callback = ActivityLifecycleCallback { activity, stage -> if (activity is MainActivity && stage != Stage.DESTROYED) {
+        current.set(activity)
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    } }
     init {
         val box = KeystoreBox(context, namespace)
         AccountRepository(context, ApiClient(origin), username).dispose()
@@ -43,13 +49,16 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
         }
         preferences.edit().putString("origin", origin).putString("username", username).commit()
         syncPreferences.edit().putBoolean("enabled", false).commit()
+        protectionPreferences.edit().clear().commit()
         instrumentation.runOnMainSync { monitor.addLifecycleCallback(callback) }
         instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
     }
     fun unlock() {
+        compose.waitUntil(15000) { resumed() && !state().busy && state().deviceId != null }
         compose.onNodeWithText("保险库密码（可离线解锁）").performScrollTo().performTextInput(input.getString("password"))
         compose.onNodeWithText("离线解锁").performScrollTo().performClick()
-        compose.waitUntil(15000) { compose.onAllNodesWithTag("accounts").fetchSemanticsNodes().isNotEmpty() }
+        try { compose.waitUntil(15000) { compose.onAllNodesWithTag("accounts").fetchSemanticsNodes().isNotEmpty() } }
+        catch (error: Exception) { throw AssertionError("Unlock readiness: busy=${state().busy}, unlocked=${state().unlocked}, resumed=${resumed()}", error) }
     }
     fun waitText(text: String) = compose.waitUntil(10000) { compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
     fun state(): ScreenState {
@@ -65,6 +74,7 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
     fun model(action: (AuthBoxViewModel) -> Unit) {
         instrumentation.runOnMainSync { action(ViewModelProvider(current.get())[AuthBoxViewModel::class.java]) }
     }
+    fun activity(action: (MainActivity) -> Unit) { instrumentation.runOnMainSync { action(current.get()) } }
     fun attachRepository(api: ApiClient, configure: (JSONObject) -> Unit) {
         compose.waitUntil(10000) { !state().busy && state().deviceId != null }
         val box = KeystoreBox(context, namespace)
@@ -90,8 +100,9 @@ internal class UiFixture(private val compose: ComposeTestRule, withVault: Boolea
         preferences.edit().putString("origin", previousOrigin).putString("username", previousUsername).commit()
         if (previousAutoSync == null) syncPreferences.edit().remove("enabled").commit()
         else syncPreferences.edit().putBoolean("enabled", previousAutoSync).commit()
+        protectionPreferences.edit().clear().apply { previousProtection.forEach { (name, value) -> if (value is Int) putInt(name, value) } }.commit()
         File(context.noBackupFilesDir, namespace).deleteRecursively()
         val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        for (suffix in listOf("storage", "device")) if (keys.containsAlias("$namespace.$suffix")) keys.deleteEntry("$namespace.$suffix")
+        for (suffix in listOf("storage", "device", "unlock")) if (keys.containsAlias("$namespace.$suffix")) keys.deleteEntry("$namespace.$suffix")
     }
 }

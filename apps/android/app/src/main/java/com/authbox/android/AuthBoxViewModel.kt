@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.net.Uri
 import android.os.SystemClock
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 data class AccountRow(val id: String, val title: String, val account: String, val group: String, val code: String, val favorite: Boolean)
 data class ScreenState(val busy: Boolean = false, val message: String = "请配置服务地址并登录", val role: String? = null,
@@ -21,7 +23,7 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null,
     val history: HistoryPage? = null, val review: ReviewView? = null, val savedVersions: List<SavedVersionInfo> = emptyList(),
     val hasReview: Boolean = false, val conflict: Boolean = false, val syncReady: Boolean = false,
-    val autoSync: AutoSyncInfo = AutoSyncInfo())
+    val autoSync: AutoSyncInfo = AutoSyncInfo(), val quickEnabled: Boolean = false)
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -31,6 +33,9 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     private var online = false
     private var screenAllowsSync = false
     private var interacting = false
+    private var importing = false
+    private var graceJob: Job? = null
+    private var graceDeadline = 0L
     private val network = SyncNetwork(application, ::networkChanged)
     val initialOrigin: String = preferences.getString("origin", "") ?: ""
     val initialUsername: String = preferences.getString("username", "") ?: ""
@@ -50,12 +55,12 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         if (initialOrigin.isNotBlank() && initialUsername.isNotBlank()) perform(initialOrigin, initialUsername) { null }
     }
 
-    private fun perform(origin: String, username: String, resumeSync: Boolean = false, operation: (AccountRepository) -> List<String>?) {
-        if (mutable.value.busy) return
+    private fun perform(origin: String, username: String, resumeSync: Boolean = false, completion: ((Boolean) -> Unit)? = null, operation: (AccountRepository) -> List<String>?) {
+        if (mutable.value.busy) { completion?.invoke(false); return }
         val epoch = generation
         registrationMaterialId = null
         mutable.value = mutable.value.copy(busy = true, message = "正在处理…", recovery = emptyList(), registrationMaterialId = null)
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             var message = "操作完成"
             var materials: List<String>? = null
             var success = false
@@ -108,7 +113,9 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
             if (switched || (success && resumeSync)) schedule.reset(SystemClock.elapsedRealtime())
             else if (success) schedule.wake(SystemClock.elapsedRealtime())
             updateSyncStatus()
+            completion?.invoke(success && foreground && epoch == generation)
         }
+        job.invokeOnCompletion { error -> if (error != null) completion?.invoke(false) }
     }
 
     private fun readState(): ScreenState {
@@ -128,12 +135,23 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                 registration = active.registrationInfo(), registrationMaterialId = if (foreground) registrationMaterialId else null,
                 history = if (foreground && active.isUnlocked()) history else null, review = if (foreground) active.reviewView() else null,
                 savedVersions = if (foreground && active.role() == "manager" && active.isUnlocked()) active.savedVersions() else emptyList(),
-                hasReview = active.hasReview(), conflict = active.hasConflict(), syncReady = active.canSync(), autoSync = mutable.value.autoSync,
+                hasReview = active.hasReview(), conflict = active.hasConflict(), syncReady = active.canSync(), autoSync = mutable.value.autoSync, quickEnabled = active.quickEnabled(),
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
 
     fun login(origin: String, user: String, password: String, existing: Boolean) = perform(origin, user, true) { it.login(password, existing); null }
+    internal fun prepareQuick(origin: String, user: String, enable: Boolean, ready: (QuickUnlockRequest) -> Unit) {
+        var request: QuickUnlockRequest? = null
+        perform(origin, user, completion = { success -> if (success && request != null) ready(request!!) else request?.close() }) {
+            request = it.prepareQuick(enable); null
+        }
+    }
+    internal fun completeQuick(origin: String, user: String, request: QuickUnlockRequest, cipher: javax.crypto.Cipher, done: () -> Unit) {
+        if (repository?.api?.origin != origin || repository?.username != user) { request.close(); done(); return }
+        perform(origin, user, true, completion = { request.close(); done() }) { it.completeQuick(request, cipher); null }
+    }
+    fun disableQuick(origin: String, user: String) = perform(origin, user) { it.disableQuick(); null }
     fun download(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user, true) { it.download(password, purpose); null }
     fun unlock(origin: String, user: String, password: String, purpose: String = "password") = perform(origin, user, true) { it.unlock(password, purpose); null }
     fun prepareBackupExport(origin: String, user: String) = perform(origin, user) { preparedExport = it.exportBackup(); null }
@@ -233,16 +251,39 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun cancelImport() { synchronized(this) { imports = ImportSession() }; mutable.value = mutable.value.copy(importPreview = ImportPreview()) }
 
     fun lock() {
+        graceJob?.cancel(); graceJob = null; graceDeadline = 0
+        hidePlaintext()
+        viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
+    }
+    private fun hidePlaintext() {
+        importing = false
         generation++; registrationMaterialId = null; history = null
         synchronized(this) { imports = ImportSession() }
         devices = emptyList()
         mutable.value = mutable.value.copy(unlocked = false, rows = emptyList(), entities = emptyList(), recovery = emptyList(), registrationMaterialId = null,
             history = null, review = null, savedVersions = emptyList(), devices = emptyList(), importPreview = ImportPreview())
-        viewModelScope.launch(Dispatchers.IO) { repository?.lock() }
         updateSyncStatus()
     }
-    fun onHidden() { foreground = false; network.close(); lock() }
-    fun onVisible() { foreground = true; network.start(); schedule.wake(SystemClock.elapsedRealtime()); updateSyncStatus() }
+    fun onHidden(graceMillis: Long = 0) {
+        val state = mutable.value
+        val retain = graceMillis in 1..60000 && !state.busy && state.unlocked && !interacting && !importing && state.recovery.isEmpty() &&
+            !state.hasReview && state.importPreview.received == 0 && state.registration == null && preparedExport == null
+        foreground = false; network.close()
+        if (!retain) lock() else {
+            graceJob?.cancel(); hidePlaintext()
+            graceDeadline = SystemClock.elapsedRealtime() + graceMillis
+            graceJob = viewModelScope.launch { delay(graceMillis); lock() }
+        }
+    }
+    fun onVisible() {
+        foreground = true; network.start()
+        val deadline = graceDeadline
+        graceJob?.cancel(); graceJob = null; graceDeadline = 0
+        if (deadline > 0) repository?.let { active -> perform(active.api.origin, active.username) {
+            if (SystemClock.elapsedRealtime() >= deadline) it.lock(); null
+        } }
+        schedule.wake(SystemClock.elapsedRealtime()); updateSyncStatus()
+    }
     internal fun networkChanged(connected: Boolean) {
         if (connected && !online) schedule.wake(SystemClock.elapsedRealtime())
         online = connected
@@ -250,6 +291,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     }
     fun setSyncScreenAllowed(allowed: Boolean) { screenAllowsSync = allowed }
     fun setSyncInteraction(active: Boolean) { interacting = active }
+    fun setImportInteraction(active: Boolean) { importing = active }
     fun setAutoSync(enabled: Boolean) {
         syncEnabled = enabled
         syncPreferences.edit().putBoolean("enabled", enabled).apply()
@@ -277,7 +319,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         val before = mutable.value
         val now = SystemClock.elapsedRealtime()
         updateSyncStatus()
-        if (!syncEnabled || !foreground || !online || (!screenAllowsSync && !requested) || interacting || before.busy || !before.unlocked ||
+        if (!syncEnabled || !foreground || !online || (!screenAllowsSync && !requested) || interacting || importing || before.busy || !before.unlocked ||
             !before.syncReady || before.recovery.isNotEmpty() || before.importPreview.received > 0 || before.preparedExport != null ||
             before.registration != null || schedule.blocked != null || (!requested && now < schedule.nextAttempt)) return
         val active = repository ?: return

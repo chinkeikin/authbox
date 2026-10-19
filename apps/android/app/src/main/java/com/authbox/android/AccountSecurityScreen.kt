@@ -37,7 +37,8 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
 @Composable internal fun AccountSecurityScreen(state: ScreenState, back: () -> Unit, refresh: () -> Unit,
     update: (String, Boolean) -> Unit, changePassword: (String, String) -> Unit,
     generate: () -> Unit, rotate: (Boolean) -> Unit, onBackup: (() -> Unit)? = null,
-    autoSync: ((Boolean) -> Unit)? = null, retrySync: (() -> Unit)? = null) {
+    autoSync: ((Boolean) -> Unit)? = null, retrySync: (() -> Unit)? = null,
+    enableQuick: (() -> Unit)? = null, disableQuick: (() -> Unit)? = null) {
     var password by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<Pair<DeviceInfo, Boolean>?>(null) }
     var saved by remember { mutableStateOf(false) }
@@ -51,6 +52,13 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
         Text(state.message)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.weight(1f).testTag("security"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { ProtectionPanel() }
+            if (enableQuick != null && disableQuick != null) item {
+                Text("本机便捷解锁", style = MaterialTheme.typography.titleMedium)
+                Text(if (state.quickEnabled) "已启用，仍需每次系统认证" else "先使用密码或恢复密钥解锁，再用系统认证启用；仅适用于本机，不代替恢复材料。Android 11 以下继续使用保险库密码。")
+                OutlinedButton(enableQuick, enabled = !state.busy && state.unlocked) { Text(if (state.quickEnabled) "重新启用系统解锁" else "启用系统解锁") }
+                if (state.quickEnabled) TextButton(disableQuick, enabled = !state.busy) { Text("关闭本机系统解锁") }
+            }
             if (autoSync != null) item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("自动同步", Modifier.padding(top = 12.dp))

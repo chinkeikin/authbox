@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.dp
     origin: String, username: String, back: () -> Unit, pick: () -> Unit, openLocal: () -> Unit, openRegistration: () -> Unit) {
     var decrypt by remember { mutableStateOf<String?>(null) }
     var replace by remember { mutableStateOf(false) }
+    val activity = LocalContext.current as MainActivity
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("备份与保险库", style = MaterialTheme.typography.headlineSmall)
@@ -59,14 +61,19 @@ import androidx.compose.ui.unit.dp
                 state.stored?.let {
                     Text("${it.vaultId} · 本机版本 ${it.revision}")
                     OutlinedButton(openRegistration, enabled = !state.busy && !account.busy) { Text("接入新账号同步") }
-                    if (!state.local.unlocked) OutlinedButton({ decrypt = "unlock" }, enabled = !state.busy) { Text("解锁离线副本") }
+                    if (!state.local.unlocked) {
+                        OutlinedButton({ decrypt = "unlock" }, enabled = !state.busy) { Text("解锁离线副本") }
+                        if (state.local.quickEnabled) OutlinedButton({ activity.requestQuick(true, false) }, enabled = !state.busy) { Text("系统解锁离线副本") }
+                    }
                     else {
                         Row {
                             Button(openLocal, enabled = !state.busy) { Text("查看离线账号") }
                             TextButton(backups::lock, enabled = !state.busy) { Text("锁定离线副本") }
                         }
                         OutlinedButton(backups::prepareExport, enabled = !state.busy) { Text("导出离线加密备份") }
+                        OutlinedButton({ activity.requestQuick(true, true) }, enabled = !state.busy) { Text("启用离线副本系统解锁") }
                     }
+                    if (state.local.quickEnabled) TextButton(backups::disableQuick, enabled = !state.busy) { Text("关闭离线副本系统解锁") }
                 } ?: Text("尚未导入离线副本")
                 VaultWrapControls(state.local.unlocked && !state.busy, { backups.rewrap(it, "password") }, backups::generateRecoveryKey,
                     state.recoveryKey, backups::confirmRecoveryKey)

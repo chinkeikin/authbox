@@ -23,14 +23,86 @@ import kotlinx.coroutines.delay
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.app.KeyguardManager
+import android.os.Build
+import android.os.PowerManager
+import android.os.SystemClock
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
     private val model: AuthBoxViewModel by viewModels()
     private val backups: BackupViewModel by viewModels()
+    private lateinit var clipboard: SensitiveClipboard
+    private lateinit var protection: ProtectionSettings
+    private lateinit var unlockPrompt: LocalUnlockPrompt
+    private var lastInteraction = SystemClock.elapsedRealtime()
+    private var sensitiveScreen = false
+    internal fun setSensitiveScreen(value: Boolean) { sensitiveScreen = value }
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { if (intent?.action == Intent.ACTION_SCREEN_OFF) { unlockPrompt.cancel(); model.lock(); backups.lock() } }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        clipboard = SensitiveClipboard(this)
+        protection = ProtectionSettings(this)
+        unlockPrompt = LocalUnlockPrompt(this)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
+        else registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
         setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { AuthBoxScreen(model, backups) } } }
+    }
+    internal fun backgroundGrace(): Long = if (sensitiveScreen || unlockPrompt.running || isChangingConfigurations || !getSystemService(PowerManager::class.java).isInteractive ||
+        getSystemService(KeyguardManager::class.java).isKeyguardLocked) 0 else protection.backgroundSeconds * 1000L
+    internal fun copyCode(code: String): Boolean {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !window.decorView.hasWindowFocus()) return false
+        if (idleExpired()) { model.lock(); backups.lock(); return false }
+        val account = model.state.value; val local = backups.state.value.local
+        if (!(account.unlocked && account.rows.any { it.code == code }) && !(local.unlocked && local.rows.any { it.code == code })) return false
+        clipboard.copy(code); return true
+    }
+    internal fun requestQuick(offline: Boolean, enable: Boolean, origin: String = "", username: String = "") {
+        if (!unlockPrompt.available()) {
+            android.widget.Toast.makeText(this, if (Build.VERSION.SDK_INT < 30) "系统便捷解锁需要 Android 11 以上，请使用保险库密码"
+                else "系统锁屏认证未配置或不可用，请使用保险库密码", android.widget.Toast.LENGTH_LONG).show(); return
+        }
+        val ready: (QuickUnlockRequest) -> Unit = { request -> unlockPrompt.show(request) { cipher, done ->
+            lastInteraction = SystemClock.elapsedRealtime()
+            if (offline) backups.completeQuick(request, cipher, done) else model.completeQuick(origin, username, request, cipher, done)
+        } }
+        if (offline) backups.prepareQuick(enable, ready) else model.prepareQuick(origin, username, enable, ready)
+    }
+    internal fun protectionTick() {
+        clipboard.clearIfDue()
+        if (idleExpired()) {
+            val current = model.state.value; val local = backups.state.value
+            if (current.unlocked || current.recovery.isNotEmpty() || local.local.unlocked || local.preview != null || local.recoveryKey != null) {
+                model.lock(); backups.lock()
+            }
+        }
+    }
+    private fun idleExpired(): Boolean = SystemClock.elapsedRealtime() - lastInteraction >= protection.idleSeconds * 1000L
+    internal fun checkResumeLock() {
+        if (idleExpired() || !getSystemService(PowerManager::class.java).isInteractive || getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
+            model.lock(); backups.lock()
+        }
+    }
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (::protection.isInitialized && idleExpired()) { model.lock(); backups.lock() }
+        lastInteraction = SystemClock.elapsedRealtime()
+    }
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (::clipboard.isInitialized) clipboard.focus(hasFocus) }
+    override fun onPostResume() { super.onPostResume(); if (::unlockPrompt.isInitialized) unlockPrompt.resume() }
+    override fun onUserLeaveHint() { super.onUserLeaveHint(); if (::unlockPrompt.isInitialized) unlockPrompt.cancel() }
+    override fun onDestroy() {
+        if (::unlockPrompt.isInitialized) unlockPrompt.cancel()
+        model.lock(); backups.lock()
+        if (::clipboard.isInitialized) { clipboard.close(); unregisterReceiver(screenOff) }
+        super.onDestroy()
     }
 }
 
@@ -63,20 +135,25 @@ class MainActivity : ComponentActivity() {
         else backups.exportNotCompleted(uri == null)
     }
     var pendingImages by remember { mutableStateOf(emptyList<Uri>()) }
-    val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> pendingImages = selected }
+    val images = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected -> model.setImportInteraction(false); pendingImages = selected }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    SideEffect { model.setSyncScreenAllowed(!settings && !files && !syncReview && !recovery && !registration) }
+    val activity = LocalContext.current as MainActivity
+    SideEffect {
+        model.setSyncScreenAllowed(!settings && !files && !syncReview && !recovery && !registration)
+        activity.setSensitiveScreen(settings || syncReview || recovery || registration || (files && !local))
+    }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 password = ""; vaultPassword = ""; invite = ""; saved = false
-                model.onHidden(); backups.onHidden()
-            } else if (event == Lifecycle.Event.ON_RESUME) { model.onVisible(); backups.onVisible() }
+                val grace = activity.backgroundGrace()
+                model.onHidden(grace); backups.onHidden(grace)
+            } else if (event == Lifecycle.Event.ON_RESUME) { activity.checkResumeLock(); model.onVisible(); backups.onVisible() }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(Unit) { while (true) { delay(1000); model.tick(); backups.tick() } }
+    LaunchedEffect(Unit) { while (true) { delay(1000); activity.protectionTick(); model.tick(); backups.tick() } }
     LaunchedEffect(state.recovery) { saved = false }
     LaunchedEffect(state.unlocked, pendingImages) {
         if (state.unlocked && pendingImages.isNotEmpty()) {
@@ -111,7 +188,7 @@ class MainActivity : ComponentActivity() {
                     model.prepareFromOffline(nextOrigin, nextUser, backups::registrationBackup, secret, purpose, nextPassword, target)
                 }, model::register)
         } else if (local && backupState.local.unlocked) {
-            VaultManagementScreen(backupState.local, backups::lock, {}, backups::edit, { local = false }, "备份与保险库")
+            VaultManagementScreen(backupState.local, backups::lock, {}, backups::edit, { local = false }, "备份与保险库", onInteraction = backups::setInteraction)
         } else BackupScreen(state, backupState, model, backups, origin, username,
             { backups.lock(); files = false; local = false }, { document.launch(arrayOf("*/*")) }, { model.lock(); local = true },
             { kitTarget = null; offlineRegistration = true; model.lock() })
@@ -122,13 +199,14 @@ class MainActivity : ComponentActivity() {
             { id, approve -> model.updateDevice(origin, username, id, approve) },
             { old, next -> model.changePassword(origin, username, old, next) },
             { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) },
-            { settings = false; files = true }, model::setAutoSync, model::retryAutoSync)
+            { settings = false; files = true }, model::setAutoSync, model::retryAutoSync,
+            { activity.requestQuick(false, true, origin, username) }, { model.disableQuick(origin, username) })
         return
     }
     if (state.unlocked) {
         VaultManagementScreen(state, model::lock, { model.upload(origin, username) }, { operation -> model.edit(origin, username, operation) }, { settings = true }, onReview = { syncReview = true }, onInteraction = model::setSyncInteraction) {
             ImportControls(state, state.importPreview, { model.importQr(origin, username, it) }, { images.launch("image/*") },
-                { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport)
+                { keep, skip -> model.confirmImport(origin, username, keep, skip) }, model::cancelImport, model::setImportInteraction)
         }
         return
     }
@@ -163,6 +241,7 @@ class MainActivity : ComponentActivity() {
             OutlinedButton(onClick = { model.refresh(origin, username) }, enabled = !state.busy && state.role != null) { Text("刷新登录") }
             OutlinedButton(onClick = { model.logout(origin, username) }, enabled = !state.busy && state.role != null) { Text("退出登录") }
         }
+        if (state.quickEnabled) OutlinedButton({ activity.requestQuick(false, false, origin, username) }, enabled = !state.busy) { Text("系统解锁本机保险库") }
         if (state.pending) {
             Text("有待上传的本地修改；冲突或网络失败时会保留。")
             Button(onClick = { model.upload(origin, username) }, enabled = !state.busy && state.role == "manager" && !state.hasReview) { Text("重试上传") }

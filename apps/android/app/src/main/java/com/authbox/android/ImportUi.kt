@@ -29,23 +29,29 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
 @Composable internal fun ImportControls(state: ScreenState, preview: ImportPreview, onQr: (String) -> Unit,
-    onImages: () -> Unit, onConfirm: (Boolean, Boolean) -> Unit, onCancel: () -> Unit) {
+    onImages: () -> Unit, onConfirm: (Boolean, Boolean) -> Unit, onCancel: () -> Unit, interaction: ((Boolean) -> Unit)? = null) {
     var manual by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var camera by remember { mutableStateOf(false) }
     var keep by remember { mutableStateOf(false) }
     var skip by remember { mutableStateOf(false) }
+    DisposableEffect(manual, camera) {
+        interaction?.invoke(manual || camera)
+        onDispose { interaction?.invoke(false) }
+    }
     val context = LocalContext.current
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        interaction?.invoke(false)
         Toast.makeText(context, if (granted) "相机权限已允许，请解锁后再次扫码" else "未允许相机，可选择图片或手动输入", Toast.LENGTH_LONG).show()
     }
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedButton({
+            interaction?.invoke(true)
             if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera = true
             else permission.launch(Manifest.permission.CAMERA)
         }, enabled = state.canEdit && !state.busy) { Text("相机扫码") }
-        OutlinedButton(onImages, enabled = state.canEdit && !state.busy) { Text("二维码图片") }
-        TextButton({ manual = true }, enabled = state.canEdit && !state.busy) { Text("粘贴二维码") }
+        OutlinedButton({ interaction?.invoke(true); onImages() }, enabled = state.canEdit && !state.busy) { Text("二维码图片") }
+        TextButton({ interaction?.invoke(true); manual = true }, enabled = state.canEdit && !state.busy) { Text("粘贴二维码") }
     }
     if (manual) AlertDialog(onDismissRequest = { manual = false; text = "" }, title = { Text("粘贴二维码内容") },
         text = { OutlinedTextField(text, { text = it }, label = { Text("otpauth 或迁移 URI") }, maxLines = 5) },

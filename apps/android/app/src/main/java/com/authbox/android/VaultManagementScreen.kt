@@ -1,9 +1,5 @@
 package com.authbox.android
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,7 +69,7 @@ import org.json.JSONObject
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onLock) { Text("锁定") }
             if (state.role != "offline") Button(onSync, enabled = !state.busy && state.pending && !state.hasReview && state.role == "manager") { Text("同步修改") }
-            TextButton({ categories = true }, enabled = editable) { Text("分组与标签") }
+            TextButton({ onInteraction?.invoke(true); categories = true }, enabled = editable) { Text("分组与标签") }
         }
         Text(if (state.role == "offline") state.message else "${state.message}\n${state.autoSync.message}", style = MaterialTheme.typography.bodySmall)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -89,8 +85,8 @@ import org.json.JSONObject
             if (state.role in setOf("manager", "offline")) item(key = "actions") {
                 Column {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button({ adding = true }, enabled = editable) { Text("添加账号") }
-                        OutlinedButton({ bulk = true }, enabled = editable && selected.isNotEmpty()) { Text("批量管理 (${selected.size})") }
+                        Button({ onInteraction?.invoke(true); adding = true }, enabled = editable) { Text("添加账号") }
+                        OutlinedButton({ onInteraction?.invoke(true); bulk = true }, enabled = editable && selected.isNotEmpty()) { Text("批量管理 (${selected.size})") }
                     }
                     importContent?.invoke()
                 }
@@ -101,7 +97,7 @@ import org.json.JSONObject
                 Card(Modifier.fillMaxWidth().testTag("account-${entry.id}")) {
                     Column(Modifier.padding(12.dp)) {
                         Row {
-                            if (state.role in setOf("manager", "offline")) Checkbox(entry.id in selected, { checked -> selected = if (checked) selected + entry.id else selected - entry.id }, enabled = editable)
+                            if (state.role in setOf("manager", "offline")) Checkbox(entry.id in selected, { checked -> if (checked) onInteraction?.invoke(true); selected = if (checked) selected + entry.id else selected - entry.id }, enabled = editable)
                             Column(Modifier.weight(1f)) {
                                 Text("${groupNames[p.optString("groupId")] ?: "未分组"} · ${p.getString("name").ifBlank { p.getString("issuer") }}")
                                 Text(p.getString("account"))
@@ -111,18 +107,15 @@ import org.json.JSONObject
                         if (!trash) {
                             val code = state.rows.find { it.id == entry.id }?.code ?: ""
                             TextButton({
-                                val clip = ClipData.newPlainText("AuthBox code", code)
-                                clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
-                                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
-                                Toast.makeText(context, "验证码已复制", Toast.LENGTH_SHORT).show()
-                            }) { Text(code, style = MaterialTheme.typography.headlineMedium) }
+                                if ((context as MainActivity).copyCode(code)) Toast.makeText(context, "验证码已复制", Toast.LENGTH_SHORT).show()
+                            }, Modifier.testTag("copy-code-${entry.id}"), enabled = state.unlocked) { Text(code, style = MaterialTheme.typography.headlineMedium) }
                             val seconds = p.getLong("period") - System.currentTimeMillis() / 1000 % p.getLong("period")
                             Text("${seconds} 秒后刷新")
                         }
                         if (state.role in setOf("manager", "offline")) Row {
                             if (trash) TextButton({ edit { VaultEditor.bulk(it, setOf(entry.id), trash = false) } }, enabled = editable) { Text("恢复账号") }
                             else {
-                                TextButton({ accountEditor = entry }, enabled = editable) { Text("编辑") }
+                                TextButton({ onInteraction?.invoke(true); accountEditor = entry }, enabled = editable) { Text("编辑") }
                                 TextButton({ edit { VaultEditor.bulk(it, setOf(entry.id), favorite = !p.getBoolean("favorite")) } }, enabled = editable) { Text(if (p.getBoolean("favorite")) "取消收藏" else "收藏") }
                                 TextButton({ edit { VaultEditor.move(it, entry.id, -1) } }, enabled = editable) { Text("上移") }
                                 TextButton({ edit { VaultEditor.move(it, entry.id, 1) } }, enabled = editable) { Text("下移") }

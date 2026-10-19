@@ -43,6 +43,7 @@ class BackupScreenTest {
         UiFixture(compose).use { fixture ->
             fixture.unlock()
             compose.onNodeWithText("账号与设备").performClick()
+            compose.onNodeWithTag("security").performScrollToNode(hasText("备份与保险库"))
             compose.onNodeWithText("备份与保险库").performClick()
             compose.onAllNodesWithText("更换保险库密码").onFirst().performClick()
             compose.onNodeWithText("新保险库密码").performTextInput("AuthBox UI new vault password")
@@ -90,7 +91,18 @@ class BackupScreenTest {
                 compose.waitUntil(15000) { !fixture.backupState().busy && fixture.backupState().local.rows.single().favorite == false }
                 assertEquals(2L, fixture.backupState().stored?.revision)
                 compose.onNodeWithText("同步修改").assertDoesNotExist()
-                compose.onNodeWithText("锁定").performClick()
+                fixture.context.getSharedPreferences("protection", 0).edit().putInt("background", 15).commit()
+                fixture.shell("input keyevent 3")
+                compose.waitUntil(10000) { !fixture.resumed() && fixture.backupState().local.entities.isEmpty() }
+                assertFalse(fixture.backupState().local.unlocked)
+                fixture.shell("am start -n com.authbox.android/.MainActivity")
+                compose.waitUntil(10000) { fixture.backupState().local.unlocked && !fixture.backupState().busy }
+                assertEquals(false, fixture.backupState().local.rows.single().favorite)
+                compose.onNodeWithText("编辑").performClick()
+                fixture.shell("input keyevent 3")
+                compose.waitUntil(10000) { !fixture.resumed() }
+                fixture.shell("am start -n com.authbox.android/.MainActivity")
+                compose.waitUntil(10000) { fixture.resumed() && !fixture.backupState().busy }
                 compose.waitUntil(10000) { !fixture.backupState().local.unlocked && fixture.backupState().local.rows.isEmpty() }
             }
         } finally {

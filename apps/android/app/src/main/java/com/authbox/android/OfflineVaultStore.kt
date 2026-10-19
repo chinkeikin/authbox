@@ -12,6 +12,8 @@ internal fun backupInfo(encoded: String, entities: List<VaultEntity>? = null): B
 
 class OfflineVaultStore(context: Context, namespace: String = "authbox.offline.v1") : AutoCloseable {
     private val box = KeystoreBox(context, namespace)
+    private val quick = QuickUnlockStore(context, namespace)
+    private val identity = namespace
     private var encoded: String? = box.read("backup")?.let { decodeUtf8(it) }?.also { VaultCrypto.inspect(it) }
     private var opened: OpenVault? = null
     private var preview: OpenVault? = null
@@ -19,6 +21,19 @@ class OfflineVaultStore(context: Context, namespace: String = "authbox.offline.v
     @Synchronized fun info(): BackupInfo? = encoded?.let { backupInfo(it, opened?.entities) }
     @Synchronized fun previewInfo(): BackupInfo? = preview?.let { backupInfo(canonical(it.snapshot), it.entities) }
     @Synchronized fun isUnlocked(): Boolean = opened != null
+    @Synchronized internal fun quickEnabled(): Boolean = encoded?.let { quick.enabled(quickBinding(VaultCrypto.inspect(it))) } ?: false
+    @Synchronized internal fun prepareQuick(enable: Boolean): QuickUnlockRequest = quick.prepare(quickBinding(VaultCrypto.inspect(requireNotNull(encoded))),
+        if (enable) requireNotNull(opened) { "请先使用密码解锁离线副本" }.vmk else null)
+    @Synchronized internal fun completeQuick(request: QuickUnlockRequest, cipher: javax.crypto.Cipher) {
+        try {
+            val header = VaultCrypto.inspect(requireNotNull(encoded))
+            require(request.namespace == identity && canonical(request.binding) == canonical(quickBinding(header))) { "离线副本已变化，请重新认证" }
+            val vmk = request.finish(cipher)
+            val next = try { VaultCrypto.authenticate(header, vmk) } finally { vmk.fill(0) }
+            lock(); opened = next
+        } finally { request.close() }
+    }
+    @Synchronized internal fun disableQuick() = quick.disable()
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(opened) { "请先解锁离线保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
 
     @Synchronized fun prepareImport(value: String, secret: String, purpose: String) {
@@ -31,6 +46,7 @@ class OfflineVaultStore(context: Context, namespace: String = "authbox.offline.v
         require(encoded == null || replace) { "请确认替换已有离线副本，原同步账号不受影响" }
         val candidate = requireNotNull(preview) { "请重新解密并确认备份预览" }
         val value = canonical(candidate.snapshot)
+        quick.disable()
         box.write("backup", value.toByteArray(Charsets.UTF_8))
         encoded = value
         opened?.close(); opened = candidate; preview = null
