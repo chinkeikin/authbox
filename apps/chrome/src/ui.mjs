@@ -81,6 +81,7 @@ const logout = button('退出登录', () => run(async () => {
 })); logout.id = 'logout';
 const forget = button('清除本机数据', () => confirmation.showModal(), 'danger'); forget.id = 'forget';
 settings.append(apply, device, logout, forget, element('p', '设置只影响这台浏览器。账号、分组、标签和收藏由手机管理；卸载扩展会删除本机缓存。', 'muted'));
+const source = element('a', '源码与许可'); source.href = 'https://github.com/chinkeikin/authbox'; source.target = '_blank'; source.rel = 'noopener noreferrer'; settings.append(source);
 const confirmation = element('dialog'); confirmation.id = 'forget-dialog';
 const confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.id = 'forget-confirmed';
 const confirmationLabel = element('label', undefined, 'check'); confirmationLabel.append(confirmed, element('span', '确认清除登录状态和本机加密缓存'));

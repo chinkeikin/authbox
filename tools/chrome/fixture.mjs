@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import { resolve } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -43,12 +43,15 @@ export async function seedReaderAccount(call, invite, fixture, user = 'chrome_br
 
 export async function startLocalFixture() {
   const directory = resolve('.cache/chrome/local-' + randomUUID()); await mkdir(directory, { recursive: true });
-  await promisify(execFile)('D:/Program Files/Git/usr/bin/openssl.exe', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-    '-keyout', resolve(directory, 'fixture.key'), '-out', resolve(directory, 'fixture.crt'), '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { windowsHide: true });
+  await writeFile(resolve(directory, 'openssl.cnf'), '[req]\ndistinguished_name=dn\n[dn]\n');
+  await promisify(execFile)(process.env.AUTHBOX_OPENSSL ?? 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+    '-config', resolve(directory, 'openssl.cnf'), '-keyout', resolve(directory, 'fixture.key'), '-out', resolve(directory, 'fixture.crt'),
+    '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { windowsHide: true });
   const token = randomBytes(32).toString('hex'); const invite = randomBytes(32).toString('base64url');
   let mf; const calls = []; let snapshotGate;
   const server = createServer({ key: await readFile(resolve(directory, 'fixture.key')), cert: await readFile(resolve(directory, 'fixture.crt')) }, async (req, res) => {
     try {
+      if (req.url === '/probe') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<!doctype html><title>AuthBox synthetic untrusted context</title>'); return; }
       const body = []; for await (const chunk of req) body.push(chunk);
       calls.push({ path: req.url.split('?')[0], method: req.method });
       if (req.url.startsWith('/v1/vault/snapshot') && snapshotGate) await snapshotGate();

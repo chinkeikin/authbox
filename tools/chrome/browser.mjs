@@ -9,6 +9,11 @@ export async function openChrome(built, directory, { localTls = false } = {}) {
     ignoreHTTPSErrors: localTls, args: ['--enable-unsafe-extension-debugging', ...(localTls ? ['--ignore-certificate-errors'] : [])],
     ignoreDefaultArgs: ['--disable-extensions'] });
   try {
+    const settings = await context.newPage(); await settings.goto('chrome://extensions');
+    const developerMode = await settings.evaluate(() => new Promise((resolve) => {
+      chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, () => resolve(chrome.runtime.lastError?.message ?? null));
+    }));
+    assert.equal(developerMode, null, 'This browser profile refuses normal extension developer mode'); await settings.close();
     const cdp = await context.browser().newBrowserCDPSession();
     const existing = (await cdp.send('Extensions.getExtensions')).extensions.find((item) => item.id === built.id);
     if (!existing) assert.equal((await cdp.send('Extensions.loadUnpacked', { path: built.directory })).id, built.id);
@@ -28,7 +33,9 @@ export async function waitRows(page, count) {
   await page.waitForFunction((count) => document.querySelectorAll('#accounts .account').length === count, count, { timeout: 20000 });
 }
 export async function login(page, account) {
-  await page.locator('#username').fill(account.username); await page.locator('#login-password').fill(account.password);
+  if (await page.locator('#username').getAttribute('readonly') === null) await page.locator('#username').fill(account.username);
+  else assert.equal(await page.locator('#username').inputValue(), account.username);
+  await page.locator('#login-password').fill(account.password);
   await page.getByRole('button', { name: '登录只读设备', exact: true }).click();
   await page.waitForSelector('#unlock-form:not([hidden])');
 }

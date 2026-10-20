@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
@@ -10,7 +10,12 @@ import { serverProfile } from '../feasibility/fixtures.mjs';
 import { sha256, utf8 } from '../../packages/protocol/src/encoding.mjs';
 const durableMarker = 'api-v1';
 const rotationMode = process.argv.includes('--android-rotation');
+const chromeMode = process.argv.includes('--chrome');
 const androidMode = process.argv.includes('--android') || rotationMode;
+assert.ok(!chromeMode || !androidMode, 'Select only one client probe');
+const chromeKey = chromeMode ? JSON.parse(await readFile('apps/chrome/manifest.json', 'utf8')).key : null;
+const chromeOrigin = chromeKey ? 'chrome-extension://' + createHash('sha256').update(Buffer.from(chromeKey, 'base64')).digest('hex').slice(0, 32)
+  .replace(/[0-9a-f]/g, (value) => String.fromCharCode(97 + parseInt(value, 16))) : null;
 const invites = Array.from({ length: androidMode ? 3 : 2 }, () => randomBytes(32).toString('base64url'));
 const inviteHashes = await Promise.all(invites.map((invite) => sha256(utf8(invite))));
 
@@ -22,7 +27,7 @@ assert.match(account, /^[a-f0-9]{32}$/i);
 assert.ok(token.length > 20 && !token.includes('replace-with'));
 assert.ok(/^[a-z0-9.-]+$/.test(zoneName) && zoneName.includes('.'));
 assert.ok(/^[a-z0-9.-]+$/.test(hostname) && hostname.endsWith(`.${zoneName}`));
-const output = rotationMode ? '.cache/api/cloud/android-rotation-report.json' : androidMode ? '.cache/api/cloud/android-service-report.json' : '.cache/api/cloud/service-report.json';
+const output = chromeMode ? '.cache/api/cloud/chrome-service-report.json' : rotationMode ? '.cache/api/cloud/android-rotation-report.json' : androidMode ? '.cache/api/cloud/android-service-report.json' : '.cache/api/cloud/service-report.json';
 const cleanupOnly = process.argv.includes('--cleanup');
 const previous = cleanupOnly ? JSON.parse(await readFile(output, 'utf8')) : undefined;
 const name = previous?.name ?? `authbox-api-check-${randomUUID().slice(0, 8)}`;
@@ -100,7 +105,7 @@ function uploadForm(bundle, { cleanup = false, migrate = false } = {}) {
       { name: 'FIXTURE_TOKEN', type: 'secret_text', text: probeToken },
       { name: 'API_ORIGIN', type: 'plain_text', text: `https://${hostname}` },
       { name: 'REGISTRATION_INVITE_HASHES', type: 'secret_text', text: JSON.stringify(inviteHashes) },
-      { name: 'CLIENT_ORIGINS', type: 'plain_text', text: '["https://client.example.invalid"]' },
+      { name: 'CLIENT_ORIGINS', type: 'plain_text', text: JSON.stringify(['https://client.example.invalid', ...(chromeOrigin ? [chromeOrigin] : [])]) },
       { name: 'FIXTURE_EXPIRES_AT', type: 'plain_text', text: String(Date.now() + 1800000) },
       { name: 'INSTALLATION', type: 'durable_object_namespace', class_name: 'FixtureStore' },
     ],
@@ -212,6 +217,13 @@ async function verify() {
     console.log(JSON.stringify({ readinessAttempt: attempt + 1, status, reachedProbe: reached }));
     assert.ok(attempt < 60, 'Custom domain failed to become consistently ready');
     await delay(2000);
+  }
+  if (chromeMode) {
+    const { runChromeCloud } = await import('../chrome/run-cloud.mjs');
+    const result = await runChromeCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0] });
+    report.chrome = result; report.checks = result.checks; report.runtimeChecksPassed = true;
+    report.accountAfter = await freeAccount(); report.freeTierRuntimeVerified = true;
+    return;
   }
   if (androidMode) {
     const { runAndroidCloud } = await import('../android/run-cloud.mjs');

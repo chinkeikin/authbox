@@ -2,7 +2,7 @@
 
 AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责账号管理，Chrome 扩展只负责查看、搜索和复制验证码，NAS 主动拉取加密备份。
 
-跨端协议及账号、设备、会话和密文同步服务核心已实现。Android 已支持账号与分组标签管理、二维码及迁移导入、加密草稿、设备授权撤销、账号恢复、保险库封装更换、独立离线文件导入导出、离线副本复制注册新账号、完整恢复材料包、冲突取舍、历史恢复、前台自动同步、本机锁定设置、剪贴板保护及主密钥轮换。Keystore、登录、加密同步和轮换后的设备重新授权通过 PHB110 与 Cloudflare 免费环境联调。系统便捷解锁入口已接入，真实认证按用户选择暂缓；Chrome 扩展等功能仍在后续阶段，真实迁移、故障恢复和发布验收统一放到最后，当前未部署生产服务。
+跨端协议及账号、设备、会话和密文同步服务核心已实现。Android 已支持账号与分组标签管理、二维码及迁移导入、加密草稿、设备授权撤销、账号恢复、保险库封装更换、独立离线文件导入导出、离线副本复制注册新账号、完整恢复材料包、冲突取舍、历史恢复、前台自动同步、本机锁定设置、剪贴板保护及主密钥轮换。Keystore、登录、加密同步和轮换后的设备重新授权通过 PHB110 与 Cloudflare 免费环境联调。Chrome 独立账号只读扩展已实现，通过实际 Chrome 安装、离线取码、生命周期及免费云端验证。系统认证正向实测按用户选择暂缓；Google 绑定与 NAS 业务功能待开发，真实迁移、故障恢复和发布验收统一放到最后，当前未部署生产服务。
 
 ## 第一版范围
 
@@ -34,6 +34,8 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 - [Android 自动同步记录](docs/android-auto-sync-results.md)
 - [Android 本机保护记录](docs/android-protection-results.md)
 - [Android 主密钥轮换记录](docs/android-key-rotation-results.md)
+- [Chrome 构建与安装](apps/chrome/README.md)
+- [Chrome 验证记录](docs/chrome-results.md)
 - [许可证说明](docs/licensing.md)
 
 ## 仓库组织
@@ -43,20 +45,20 @@ AuthBox 是支持加密同步的多设备 2FA 验证器。Android 手机负责�
 | 路径 | 内容 |
 | --- | --- |
 | `apps/android/` | Kotlin 和 Jetpack Compose 手机客户端 |
-| `apps/chrome/` | TypeScript 和 Manifest V3 只读扩展 |
+| `apps/chrome/` | JavaScript ESM 和 Manifest V3 只读扩展 |
 | `services/api/` | Cloudflare Workers 认证与同步服务 |
 | `packages/protocol/` | 同步与加密格式、跨端测试向量及 schema |
 | `tools/nas-backup/` | NAS 主动备份程序 |
 | `tools/feasibility/` | 已建立的运行时、真机和环境验证探针 |
 | `docs/` | 需求、方案、开发步骤及运行说明 |
 
-`packages/protocol/`、`services/api/`、`apps/android/` 已建立，Chrome 和 NAS 业务模块仍为规划目录；可行性探针独立于正式业务工程。
+`packages/protocol/`、`services/api/`、`apps/android/` 和 `apps/chrome/` 已建立，NAS 业务模块仍为规划目录；可行性探针独立于正式业务工程。
 
 ## 开发方式
 
 每个步骤形成可评审的独立改动，完成对应检查后提交并及时推送。提交说明记录改动、验证和限制。真实验证密钥、备份、令牌及部署秘密不进入 Git。
 
-执行 `npm test` 验证协议、HTTP 边界、SQLite API 和正式打包入口，执行 `npm run build:api` 生成本地部署包。Android 构建、合成测试材料及免费云端联调命令见客户端说明；Google 真实授权、完整客户端功能和 NAS 恢复仍按后续阶段验证。
+执行 `npm test` 验证协议、Chrome 核心、HTTP 边界、SQLite API 和正式打包入口，执行 `npm run build:api` 生成本地部署包。Android 和 Chrome 构建、合成测试材料及免费云端联调命令见客户端说明；Google 真实授权和 NAS 恢复仍按后续阶段验证。
 
 ## 许可证
 

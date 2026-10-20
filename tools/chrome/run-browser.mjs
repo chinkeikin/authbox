@@ -12,6 +12,9 @@ const fixture = await startLocalFixture(); let browser;
 const results = []; const passed = (name) => { results.push(name); console.log(JSON.stringify({ passed: name })); };
 try {
   const built = await buildChrome({ origin: fixture.origin, directory: resolve(fixture.directory, 'extension') });
+  const testManifest = { ...built.manifest, content_scripts: [{ matches: ['https://127.0.0.1/*'], js: ['probe-content.js'], run_at: 'document_idle' }] };
+  await writeFile(resolve(built.directory, 'manifest.json'), JSON.stringify(testManifest));
+  await writeFile(resolve(built.directory, 'probe-content.js'), `Promise.all(['local','session'].map(async area=>{try{await chrome.storage[area].get(null);return area+':allowed';}catch{return area+':blocked';}})).then(async result=>{const reply=await chrome.runtime.sendMessage({type:'list'});document.documentElement.dataset.authboxProbe=JSON.stringify({areas:result,code:reply.code});});`);
   const profile = resolve(fixture.directory, 'profile');
   browser = await openChrome(built, profile, { localTls: true });
   let page = await browser.page();
@@ -77,6 +80,12 @@ try {
   await swCdp.send('ServiceWorker.enable'); await swCdp.send('ServiceWorker.stopAllWorkers');
   page = await browser.page(); await waitRows(page, 1);
   passed('A real stopped MV3 service worker resumes from trusted session storage without requiring the password again');
+  const untrusted = await browser.context.newPage(); await untrusted.goto(fixture.origin + '/probe');
+  await untrusted.waitForFunction(() => Boolean(document.documentElement.dataset.authboxProbe));
+  const probe = JSON.parse(await untrusted.evaluate(() => document.documentElement.dataset.authboxProbe));
+  assert.deepEqual(probe.areas.sort(), ['local:blocked', 'session:blocked']); assert.equal(probe.code, 'untrusted_sender');
+  await untrusted.close(); await page.bringToFront(); await waitRows(page, 1);
+  passed('Actual test-only content script cannot access local/session storage or invoke trusted vault messages');
   await fixture.pause(); await browser.context.close(); browser = await openChrome(built, profile, { localTls: true });
   page = await browser.page(); await page.waitForSelector('#unlock-form:not([hidden])');
   assert.equal((await message(page, 'status')).value.unlocked, false);
@@ -93,7 +102,7 @@ try {
   assert.deepEqual(errors, []);
   const report = { generatedAt: new Date().toISOString(), browser: browser.context.browser().version(), extensionId: built.id,
     checks: results.length, results, mode: 'Google Chrome installed MV3, loopback HTTPS with synthetic TLS, real local workerd SQLite DO',
-    productionEndpoint: false, companyPolicyVerified: false, directory: fixture.directory };
+    productionEndpoint: false, companyPolicyVerified: false, testOnlyContentScript: true, directory: fixture.directory };
   await writeFile('.cache/chrome/browser-report.json', JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify(report));
 } catch (error) {
   const page = browser?.context.pages().find((page) => page.url().startsWith('chrome-extension:'));

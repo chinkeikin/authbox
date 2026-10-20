@@ -46,6 +46,21 @@ export class ReaderController {
     if (this.state) return;
     const stored = (await this.storage.local.get('reader')).reader;
     fail(!stored || stored.version === 1, 'unsupported_state', '本机数据版本不受支持，请更新扩展');
+    if (stored) {
+      fields(stored, Object.keys(defaults()));
+      const p = stored.preferences;
+      fail([1, 5, 15].includes(p.idleMinutes) && [0, 30, -1].includes(p.backgroundSeconds) && ['system', 'light', 'dark'].includes(p.theme),
+        'invalid_state', '本机锁定设置损坏，请重新安装扩展或清除其数据');
+      if (stored.account) { apiOrigin(stored.account.origin); username(stored.account.username); uuid(stored.account.userId); }
+      if (stored.auth) {
+        fail(Boolean(stored.account), 'invalid_state', '本机会话缺少账号身份');
+        readerAuth(stored.auth, stored.account.username, 0);
+        fail(stored.auth.user.id === stored.account.userId, 'invalid_state', '本机会话账号身份不一致');
+      }
+      for (const encoded of [stored.backup, stored.candidate].filter((value) => value !== null)) {
+        fail(stored.account && typeof encoded === 'string' && utf8(encoded).length <= MAX_BYTES, 'invalid_state', '本机加密缓存大小或身份不正确');
+      }
+    }
     this.state = stored ?? defaults();
   }
   async save(next) { await this.storage.local.set({ reader: next }); this.state = structuredClone(next); }
@@ -77,6 +92,13 @@ export class ReaderController {
   async unlockState() {
     const value = (await this.storage.session.get('unlock')).unlock;
     if (!value) return null;
+    try {
+      fields(value, ['id', 'vmk', 'digest', 'expiresAt', 'lastSeenAt', 'backgroundUntil']); uuid(value.id);
+      unbase64url(value.vmk, 32); unbase64url(value.digest, 32);
+      fail(Number.isSafeInteger(value.expiresAt) && Number.isSafeInteger(value.lastSeenAt) && value.lastSeenAt > 0
+        && value.expiresAt > value.lastSeenAt && value.expiresAt - value.lastSeenAt <= this.state.preferences.idleMinutes * 60000
+        && (value.backgroundUntil === null || Number.isSafeInteger(value.backgroundUntil)), 'invalid_unlock', '本机解锁状态不正确');
+    } catch { await this.clearUnlock(); return null; }
     const now = this.now();
     if (now < value.lastSeenAt || now >= value.expiresAt || (value.backgroundUntil !== null && now >= value.backgroundUntil)
       || !this.state.backup || value.digest !== (await inspectBackup(this.state.backup)).digest) {
@@ -292,7 +314,8 @@ export class ReaderController {
   async touch() {
     const unlock = await this.unlockState();
     if (unlock) {
-      unlock.expiresAt = this.now() + this.state.preferences.idleMinutes * 60000; unlock.backgroundUntil = null;
+      const now = this.now();
+      unlock.lastSeenAt = now; unlock.expiresAt = now + this.state.preferences.idleMinutes * 60000; unlock.backgroundUntil = null;
       await this.storage.session.set({ unlock }); await this.alarm(unlock.expiresAt);
     }
     return this.status();

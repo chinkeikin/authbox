@@ -98,6 +98,17 @@ test('invalid ciphertext, rollback and network failure preserve verified cache',
   const before = t.api.calls.length; await t.reader.dispatch('sync'); assert.equal(t.api.calls.length, before);
 });
 
+test('trusted activity within the storage timestamp throttle preserves a consistent idle deadline', async () => {
+  const t = setup(); await t.ready();
+  for (const elapsed of [1, 400, 999, 1001]) {
+    t.advance(elapsed);
+    const status = await t.reader.dispatch('touch');
+    assert.equal(status.unlocked, true);
+    assert.equal(status.expiresAt, t.now() + 300000);
+    assert.equal(t.storage.session.values.unlock.lastSeenAt, t.now());
+  }
+});
+
 test('new generation requires new password and never silently overwrites old cache', async () => {
   const t = setup(); await t.ready(); const rotation = await rotationFixture(fixture);
   try {
@@ -164,4 +175,11 @@ test('logout and confirmed local erasure cannot mutate vault data', async () => 
   await assert.rejects(t.reader.dispatch('forget', { confirmed: false }), { code: 'confirmation' });
   await t.reader.dispatch('forget', { confirmed: true }); assert.deepEqual(t.storage.local.values, {});
   assert.equal(t.api.backup, fixture.backup);
+});
+
+test('corrupt session deadlines and persisted lock settings fail closed', async () => {
+  const t = setup(); await t.ready(); t.storage.session.values.unlock.expiresAt = 'invalid';
+  await assert.rejects(t.reader.dispatch('list'), { code: 'locked' }); assert.equal(t.reader.opened, null);
+  t.storage.local.values.reader.preferences.idleMinutes = 100000;
+  await assert.rejects(t.controller().dispatch('status'), { code: 'invalid_state' });
 });
