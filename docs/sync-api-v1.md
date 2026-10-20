@@ -27,7 +27,11 @@
 {operationId: UUID, baseRevision: integer, restoredIds: UUID[], backup: canonicalBackupString}
 ```
 
-空服务端版本为 0，初次快照 revision/keyGeneration 均为 1。只有 baseRevision 等于当前版本，且新备份 revision 为 baseRevision + 1，才接受提交。已有保险库不得改变 vaultId；keyGeneration 只能维持或加 1，新代次必须让完整实体及封装都使用该代次。实体未改动则保留原密文及 revision，新增或改变的实体必须使用目标快照 revision，类型不得改变。
+空服务端版本为 0，初次快照 revision/keyGeneration 均为 1。只有 baseRevision 等于当前版本，且新备份 revision 为 baseRevision + 1，才接受提交。已有保险库不得改变 vaultId；普通提交必须保持 keyGeneration，只有独立的主密钥轮换操作可增加一个代次。实体未改动则保留原密文及 revision，新增或改变的实体必须使用目标快照 revision，类型不得改变。
+
+`POST /v1/vault/rotate` 使用相同 payload 和独立的 `vault.rotate` 私钥挑战。必须恰好增加一个密钥代次，保留全部实体 ID 和类型，不得同时删除、恢复或增加条目；全部实体与清单重新加密并使用目标版本，两个封装使用新盐、新 nonce 和新密文。云端只能验证结构，无法证明客户端实际生成了新 VMK 或明文相同。当前管理手机在内存生成随机新 VMK，设置不同的新保险库密码，生成独立新 ABR1，并在确认前保留旧加密快照。旧备份继续使用对应旧材料恢复。
+
+轮换事务同时保存快照和幂等回执，将其他未撤销设备降为 reader，并撤销当前会话以外的全部账号会话；已撤销设备不会恢复。其他设备重新登录后仍为 reader，须由当前管理设备重新批准并再次证明私钥才能恢复管理权限。回执保留规则与普通提交相同，但幂等摘要绑定操作种类，不能跨普通提交和轮换接口重放。响应丢失时重试同一候选和 operationId；已提交候选在结果确认前不可丢弃。撤销或轮换无法擦除其他设备已取得的 TOTP 密钥；平台密码和账号恢复码也不会随 VMK 轮换改变。
 
 服务端记录移除过的稳定实体 ID。重新加入这些 ID 必须在 restoredIds 中显式列出，类型保持一致；否则拒绝，避免重新拉取后的旧离线内容静默复活。恢复历史快照时也必须作为当前版本上的新提交，不能回退同步序号。客户端需要保留本地待上传候选，发生冲突后先完整拉取再展示合并/恢复选择，不能只把 baseRevision 改成最新后自动覆盖。
 
@@ -70,7 +74,7 @@ subject 为用户 UUID；注册、device-login、恢复等未登录流程使用�
 | 主体 | 允许 |
 | --- | --- |
 | reader | 读当前密文/版本/自己的历史，刷新及注销自己的会话 |
-| manager | reader 能力；查看本账号设备；带私钥证明提交快照、审批/撤销设备、改平台密码、轮换账号恢复码 |
+| manager | reader 能力；查看本账号设备；带私钥证明提交快照、轮换主密钥、审批/撤销设备、改平台密码、轮换账号恢复码 |
 | backup_reader | 仅备份接口读取清单及完整密文快照，不能用作用户会话；专用凭据 API 留到 NAS 步骤实现 |
 
 管理员身份只限所属账号，没有全站管理或跨用户读写能力。读权限不能生成管理挑战；修改前后均检查当前授权。Google 的后续绑定仅替代密码输入，不跳过设备证明或改变角色。
@@ -96,6 +100,7 @@ API 固定 HTTPS origin。所有业务响应 `Cache-Control: no-store`，不使�
 | GET /v1/vault/history | 当前用户的分页历史元数据，reader/manager 只读 |
 | GET /v1/vault/retired | 仅 manager 读取当前版本对应的已移除 ID |
 | POST /v1/vault/commit | manager，payload 与 proof 分开，原子版本提交 |
+| POST /v1/vault/rotate | manager，vault.rotate 证明，原子轮换及其他设备降权、会话失效 |
 
 挑战、认证和刷新使用 SQLite 持久限速；内存队列最多一个执行、八个等待，重启不清除限速或授权记录。配置错误、超过免费平台额度或应用容量限制时明确失败，不自动升级套餐，不回退密码强度。公开临时验证入口必须另有随机探针凭据和到期限制，正式服务不包含读取密码哈希或任意清库的接口。
 

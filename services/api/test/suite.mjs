@@ -7,6 +7,7 @@ import { publicDeviceKey, signChallenge } from '../../../packages/protocol/src/p
 import { sealRecord } from '../../../packages/protocol/src/vault.mjs';
 import { validateVaultEntities } from '../../../packages/protocol/src/business.mjs';
 import { fixturePassword, makeBackupFixture } from '../../../tools/protocol/fixtures.mjs';
+import { runRotationCases } from './rotation.mjs';
 
 const hash = (value) => sha256(utf8(canonical(value)));
 const DAY = 86400000;
@@ -88,7 +89,7 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   const readerToken = reader.session.accessToken;
   assert.equal(reader.device.role, 'reader');
   await call('reader-pull', '/v1/vault/snapshot', { token: readerToken });
-  for (const path of ['/v1/vault/commit', '/v1/devices/approve', '/v1/devices/revoke', '/v1/account/password/prepare', '/v1/account/password/confirm', '/v1/account/recovery/rotate', '/v1/challenges']) {
+  for (const path of ['/v1/vault/commit', '/v1/vault/rotate', '/v1/devices/approve', '/v1/devices/revoke', '/v1/account/password/prepare', '/v1/account/password/confirm', '/v1/account/recovery/rotate', '/v1/challenges']) {
     await call(`reader-deny-${path.split('/').slice(-2).join('-')}`, path, { token: readerToken, payload: { role: 'manager', client_type: 'mobile' }, expected: 403 });
   }
   await call('reader-devices-denied', '/v1/devices', { token: readerToken, expected: 403 });
@@ -191,6 +192,8 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   assert.equal(isolatedHistory.vaultId, otherFixture.vault.vaultId); assert.deepEqual(isolatedHistory.entries.map((row) => row.revision), [1]);
   await call('cross-user-query-rejected', `/v1/vault/snapshot?userId=${registered.user.id}`, { token: other.session.accessToken, expected: 400 });
   await managed('cross-user-device-denied', '/v1/devices/revoke', 'device.revoke', { deviceId: manager.value.id }, otherManager, other.session.accessToken, 404);
+  await runRotationCases({ call, managed, authProof, proofFor, device, fixture: otherFixture, manager: otherManager, session: other, loginPassword: apiFixturePassword });
+  await clock();
 
   const refreshed = (await call('refresh-rotate', '/v1/auth/refresh', { payload: { refreshToken: reader.session.refreshToken } })).value;
   assert.equal(refreshed.device.role, 'reader');
@@ -301,5 +304,6 @@ export async function runApiSuite(dispatch, { origin, fixtureToken, invites, onC
   return { results, checks: ['Registration and recovery fault rollback', 'Single-use invitation and account recovery', 'No plaintext credentials or vault data in SQLite',
     'Reader cannot mutate or escalate', 'Bound one-use device proofs', 'Same-user approvals and immediate revocation', 'Complete snapshot CAS and idempotency',
     'Concurrent commits have one winner', 'Explicit history restore', 'Cross-user isolation', 'Refresh rotation and reuse revocation', 'Password reauthentication and change',
+    'Atomic VMK rotation, preserved history, idempotent receipt and device reauthorization',
     'Runtime reset persistence', 'Challenge, access and refresh expiry', 'Native Node verifies stored Argon2id profile'], generatedAt: new Date().toISOString() };
 }

@@ -1,6 +1,6 @@
 import { base64url, bytes, canonical, fields, positive, unbase64url, utf8, uuid } from './encoding.mjs';
 
-export const MANAGEMENT_OPERATIONS = Object.freeze(['sync.commit', 'device.approve', 'device.revoke', 'password.change', 'recovery.rotate']);
+export const MANAGEMENT_OPERATIONS = Object.freeze(['sync.commit', 'vault.rotate', 'device.approve', 'device.revoke', 'password.change', 'recovery.rotate']);
 
 export function authorize(principal, operation) {
   if (!principal || principal.revoked || !['reader', 'manager', 'backup_reader'].includes(principal.role)) return false;

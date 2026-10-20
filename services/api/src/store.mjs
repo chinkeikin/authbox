@@ -211,7 +211,7 @@ export class InstallationStore {
       this.sql.exec('UPDATE sessions SET revoked = 1 WHERE id = ?', principal.id);
       return json({ loggedOut: true });
     }
-    const operation = { '/v1/vault/commit': 'sync.commit', '/v1/devices/approve': 'device.approve', '/v1/devices/revoke': 'device.revoke',
+    const operation = { '/v1/vault/commit': 'sync.commit', '/v1/vault/rotate': 'vault.rotate', '/v1/devices/approve': 'device.approve', '/v1/devices/revoke': 'device.revoke',
       '/v1/account/recovery/rotate': 'recovery.rotate', '/v1/account/password/prepare': 'password.change', '/v1/account/password/confirm': 'password.change' }[path];
     if (path === '/v1/challenges') this.permit(principal, 'sync.commit');
     else { need(operation, 404, 'not_found'); this.permit(principal, operation); }
@@ -225,7 +225,7 @@ export class InstallationStore {
     if (path === '/v1/account/password/prepare') return this.passwordPrepare(request, principal, body);
     if (path === '/v1/account/password/confirm') return this.passwordConfirm(principal, body);
     await input(() => fields(body, ['payload', 'proof']));
-    if (operation === 'sync.commit') return this.commit(principal, body);
+    if (operation === 'sync.commit' || operation === 'vault.rotate') return this.commit(principal, body, operation === 'vault.rotate');
     if (operation === 'recovery.rotate') {
       await input(() => { fields(body.payload, ['hashes']); validateRecoveryHashes(body.payload.hashes); });
       return json(await this.managed(principal, operation, body, () => { this.saveRecovery(principal.user_id, body.payload.hashes); return { rotated: true }; }));
@@ -387,22 +387,26 @@ export class InstallationStore {
     return json(this.sessionResponse({ id: principal.user_id, username: principal.username }, { id: principal.device_id, role: principal.role }, session));
   }
 
-  async commit(principal, body) {
+  async commit(principal, body, rotation = false) {
     const backup = await input(() => validateCommit(body.payload));
-    const hash = await requestHash(body.payload);
+    const hash = await requestHash(rotation ? { operation: 'vault.rotate', payload: body.payload } : body.payload);
     const prior = this.one('SELECT * FROM operations WHERE user_id = ? AND device_id = ? AND operation_id = ?', principal.user_id, principal.device_id, body.payload.operationId);
     if (prior) { need(prior.request_hash === hash, 409, 'operation_mismatch'); return json(JSON.parse(prior.result)); }
     const user = this.one('SELECT * FROM users WHERE id = ?', principal.user_id);
     need(user.revision === body.payload.baseRevision, 409, 'revision_conflict', { revision: user.revision });
     const previous = JSON.parse(this.one('SELECT body FROM snapshots WHERE user_id = ? AND revision = ?', user.id, user.revision).body);
     const retired = new Map(this.sql.exec('SELECT id,type FROM entity_ids WHERE user_id = ? AND retired = 1', user.id).toArray().map((row) => [row.id, row.type]));
-    const transition = await input(() => validateTransition(previous, backup, retired, body.payload.restoredIds));
+    const transition = await input(() => validateTransition(previous, backup, retired, body.payload.restoredIds, rotation));
     const signatures = await this.snapshotPlan(backup);
-    const result = await this.managed(principal, 'sync.commit', body, () => {
+    const result = await this.managed(principal, rotation ? 'vault.rotate' : 'sync.commit', body, () => {
       need(this.one('SELECT revision FROM users WHERE id = ?', user.id).revision === body.payload.baseRevision, 409, 'revision_conflict');
       this.sql.exec('DELETE FROM operations WHERE user_id = ? AND created_at < ?', user.id, this.now() - 30 * DAY);
       need(this.count('SELECT COUNT(*) AS n FROM operations WHERE user_id = ?', user.id) < 10000, 507, 'operation_capacity');
       this.saveSnapshot(user, backup, body.payload.backup, signatures, transition);
+      if (rotation) {
+        this.sql.exec("UPDATE devices SET role = 'reader' WHERE user_id = ? AND id <> ? AND revoked = 0", user.id, principal.device_id);
+        this.sql.exec('UPDATE sessions SET revoked = 1 WHERE user_id = ? AND id <> ?', user.id, principal.id);
+      }
       const receipt = { operationId: body.payload.operationId, revision: backup.revision, digest: backup.digest };
       this.sql.exec('INSERT INTO operations VALUES (?,?,?,?,?,?)', user.id, principal.device_id, body.payload.operationId, hash, canonical(receipt), this.now());
       return receipt;

@@ -7,6 +7,7 @@ import { base64url, canonical, randomBytes, sha256, utf8 } from '../src/encoding
 import { makeBackupFixture } from '../../../tools/protocol/fixtures.mjs';
 import { accountRecoveryHash, createAccountRecoveryCodes, validateRecoveryHashes } from '../src/account-recovery.mjs';
 import { authenticationContext } from '../src/api.mjs';
+import { rotationFixture } from '../../../services/api/test/rotation.mjs';
 
 const id = '10000000-0000-4000-8000-000000000001';
 let fixture;
@@ -69,7 +70,7 @@ test('authentication challenge contexts exclude password, invitation and recover
 });
 
 test('read-only and backup credentials cannot create management challenges or mutate state', () => {
-  for (const operation of ['sync.commit', 'device.approve', 'device.revoke', 'password.change', 'recovery.rotate', 'device.list']) {
+  for (const operation of ['sync.commit', 'vault.rotate', 'device.approve', 'device.revoke', 'password.change', 'recovery.rotate', 'device.list']) {
     assert.equal(authorize({ role: 'reader' }, operation), false);
     assert.equal(authorize({ role: 'backup_reader' }, operation), false);
     assert.equal(authorize({ role: 'manager' }, operation), true);
@@ -126,4 +127,24 @@ test('snapshot transitions retain unchanged revisions and reject stale edits, va
   assert.throws(() => validateTransition(missing, restored, new Map([[id, 'tag']]), [id]));
   assert.throws(() => validateTransition(snapshot, next, new Map(), [id]));
   assert.equal(canonical(snapshot.entities[0]), canonical(next.entities[0]));
+});
+
+test('VMK rotation requires a distinct generation, complete entities and fresh wraps and nonces', async () => {
+  const rotation = await rotationFixture(fixture);
+  try {
+    const next = JSON.parse(rotation.backup);
+    validateTransition(snapshot, next, new Map(), [], true);
+    assert.throws(() => validateTransition(snapshot, next));
+    for (const mutate of [
+      (v) => { v.keyGeneration = 1; }, (v) => { v.keyGeneration = 3; },
+      (v) => { v.entities.pop(); }, (v) => { v.entities[0].type = 'tag'; },
+      (v) => { v.entities[0].revision = 1; }, (v) => { v.entities[0].nonce = snapshot.manifest.nonce; },
+      (v) => { v.wraps.password.kdf.salt = snapshot.wraps.password.kdf.salt; },
+      (v) => { v.wraps.recovery.ciphertext = snapshot.wraps.recovery.ciphertext; },
+    ]) {
+      const changed = structuredClone(next); mutate(changed);
+      assert.throws(() => validateTransition(snapshot, changed, new Map(), [], true));
+    }
+    assert.throws(() => validateTransition(snapshot, next, new Map([[id, 'account']]), [id], true));
+  } finally { rotation.vmk.fill(0); }
 });
