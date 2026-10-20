@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AuthBox",
+  "version": "0.1.0",
+  "description": "只读查看、筛选和复制 AuthBox 验证码，支持加密离线缓存。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "alarms",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://api.example.invalid/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "index.html?popup=1",
+    "default_title": "AuthBox"
+  },
+  "options_ui": {
+    "page": "index.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src https://api.example.invalid; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlMYaGqsYocTIBoL72QmmZl1Yg/8DZpoNhy6M9xS7qcmjyN7PpOvTvsbTJjSF0hAgb0Mdxh7nFarqp09Qjhic5JZy2lzgC8K9Tb7vCK/1+urO5OvS3k95JrxN7p+hTDz4qV1P1WHzBJfnVwzhHxx7/S8rRGmPBCO7qksABgdQ2gSOHuoiX8Jdx6wi9Iqpl9/vlYsstz1ST4dQAvu//To3vJMSl6ELpD+qcuKtdU8fphH2RuOcaFWyo9WWN8jxF+id2eyhpTT3HbmbWAW00tPISHbsuRdnCGSJe3G21nkTRdsn9o2jLQtU8jISrVEuEhI+zIPWsxrnZ6HiGbQ4m2gKKwIDAQAB"
+}

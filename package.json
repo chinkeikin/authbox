@@ -8,6 +8,9 @@
     "node": ">=24.13.0"
   },
   "scripts": {
+    "build:chrome": "node tools/chrome/build.mjs",
+    "test:chrome": "node --test apps/chrome/test/*.test.mjs",
+    "verify:chrome:smoke": "node tools/chrome/smoke.mjs",
     "verify:android:app:fixtures": "node tools/android/prepare-fixtures.mjs",
     "verify:android:app:import-fixtures": "node tools/android/import-fixtures.mjs",
     "verify:android:app:protocol": "node tools/android/check-protocol.mjs",

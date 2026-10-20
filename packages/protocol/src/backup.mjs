@@ -78,6 +78,14 @@ export async function restoreBackup(encoded, { purpose, secret }) {
   if (!['password', 'recovery'].includes(purpose)) throw new Error('Invalid restore method');
   const backup = await inspectBackup(encoded);
   const vmk = await unwrapVmk(backup.wraps[purpose], secret);
+  try { return await authenticateBackup(encoded, vmk); }
+  finally { vmk.fill(0); }
+}
+
+export async function authenticateBackup(encoded, rawKey) {
+  const backup = await inspectBackup(encoded);
+  if (!(rawKey instanceof Uint8Array) || rawKey.length !== 32) throw new Error('Invalid VMK');
+  const vmk = Uint8Array.from(rawKey);
   try {
     const { payload } = split(backup);
     const manifest = await openRecord(vmk, backup.manifest);
