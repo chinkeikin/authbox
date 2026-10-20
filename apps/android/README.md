@@ -113,6 +113,16 @@ adb -s <PHB110序列号> shell am instrument -w -e class com.authbox.android.Key
 
 安装开发和测试 APK 后，运行 `npm run verify:android:app:auto-sync` 执行存储、真实界面及锁定竞态测试。真实免费云端联调含自动同步及多设备冲突检查，结果见[自动同步记录](../../docs/android-auto-sync-results.md)。
 
+## 主密钥轮换
+
+解锁已同步的管理账号后，在“账号与设备”中选择“轮换主密钥”。先输入当前保险库密码或 ABR1，设置两次一致且与当前不同的新保险库密码。程序生成随机新 VMK、新密码封装和新 ABR1，重新加密全部实体和清单；业务内容、条目 ID、保险库 ID 不变。确认前先保留轮换前的完整加密快照，空间不足则拒绝继续，不会自动删除旧副本。
+
+将新 ABR1 保存到手机以外，勾选确认后才提交。后台会隐藏恢复材料并锁定；未提交候选可取消重建。轮换期间暂停编辑和自动同步。已提交但响应未确认时，保留原候选和 operationId，使用旧密码解锁本机后“重试确认轮换”，不能直接丢弃。确定的版本冲突会保留新旧候选，取消后重新同步或下载，不直接覆盖云端。
+
+成功后锁定本机保险库，使用新密码或新 ABR1 解锁，系统便捷解锁须重新启用。其他设备会话失效、管理权限降为只读，重新登录后需要再次批准管理。轮换不会修改平台登录密码或 ABAC1，也不会撤销对方已取得的 TOTP 密钥。轮换前文件和历史仍需对应旧材料；跨代次恢复历史时明确输入旧密码/ABR1，恢复内容作为新版本使用当前主密钥和封装提交。
+
+安装开发和测试 APK 后运行 `npm run verify:android:app:key-rotation`，验证真机加密、候选持久化、确认和后台清理界面，并用 Node 独立解密产物。`npm run verify:android:app:key-rotation:cloud` 使用与其他云端探针相同的环境配置，验证 PHB110 与临时免费 SQLite DO 服务；只读权限、设备重新授权及跨代次历史恢复均使用合成数据，完成后清理临时资源。中断可用 `node --use-env-proxy --env-file=.env.cloudflare tools/api/run-cloud.mjs --android-rotation --cleanup` 重试云端清理。结果见[主密钥轮换记录](../../docs/android-key-rotation-results.md)。
+
 本步骤固定已验证的工具链与依赖；Lint 关于较新目标 SDK 和依赖版本的提醒保留，发布前另行升级与兼容性验证。实际结果见 [真机记录](../../docs/android-results.md)。
 
 依赖许可见 APK assets/THIRD_PARTY_NOTICES.txt；不需要 Google Play 服务或付费 SDK。当前仅开发签名，不包含发布签名与生产服务地址。

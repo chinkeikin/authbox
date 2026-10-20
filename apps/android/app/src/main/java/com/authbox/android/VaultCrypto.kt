@@ -204,6 +204,30 @@ object VaultCrypto {
         } finally { candidate.close() }
     }
 
+    fun rotate(vault: OpenVault, password: String): NewVault {
+        canonical(password); require(password.toByteArray(Charsets.UTF_8).size in 8..1024)
+        val oldWrap = vault.snapshot.getJSONObject("wraps").getJSONObject("password")
+        val oldKey = derive(oldWrap, password)
+        val unchanged = try {
+            try { crypt(oldKey, oldWrap, true).fill(0); true }
+            catch (_: javax.crypto.AEADBadTagException) { false }
+        } finally { oldKey.fill(0) }
+        require(!unchanged) { "轮换必须设置与当前不同的保险库密码" }
+        val generation = number(vault.snapshot, "keyGeneration") + 1
+        val revision = number(vault.snapshot, "revision") + 1
+        val id = vault.snapshot.getString("vaultId")
+        val vmk = randomBytes(32)
+        val recovery = newRecoveryKey()
+        try {
+            val wraps = obj("password" to wrap(vmk, id, generation, "password", password),
+                "recovery" to wrap(vmk, id, generation, "recovery", recovery))
+            val candidate = OpenVault(vmk.copyOf(), obj("vaultId" to id, "keyGeneration" to generation, "wraps" to wraps, "entities" to JSONArray()),
+                vault.entities.map { it.copy(payload = it.payload.copy()) }.toMutableList())
+            try { candidate.snapshot = inspect(snapshot(candidate, revision)); return NewVault(candidate, recovery) }
+            catch (error: Throwable) { candidate.close(); throw error }
+        } finally { vmk.fill(0) }
+    }
+
     fun create(password: String): NewVault {
         canonical(password); require(password.toByteArray(Charsets.UTF_8).size in 8..1024)
         val recovery = newRecoveryKey()

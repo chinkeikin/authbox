@@ -8,7 +8,7 @@ import { validateVaultEntities } from '../../packages/protocol/src/business.mjs'
 import { sealRecord } from '../../packages/protocol/src/vault.mjs';
 import { validateCommit, validateTransition } from '../../packages/protocol/src/sync.mjs';
 
-export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite, registrationInvite }) {
+export async function runAndroidCloud({ origin, fixtureToken, invite, managementInvite, registrationInvite, rotationOnly = false }) {
   await checkDevice();
   const suffix = randomBytes(5).toString('hex');
   const config = { origin, fixtureToken, invite, managementInvite, registrationInvite, username: `android_${suffix}`, namespace: `authbox.test.cloud.${suffix}`,
@@ -30,6 +30,53 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
     await buildTests();
     await install();
     installed = true;
+    if (rotationOnly) {
+      await instrument('CloudKeyRotationTest', 'write', 300000);
+      const output = await artifact('cloud-rotation-result.json');
+      const login = await (await request('/v1/auth/login', { username: config.username, password: config.password,
+        deviceName: 'Independent rotation observer', publicKey: null })).json();
+      assert.equal(login.device.role, 'reader');
+      const final = await (await request('/v1/vault/snapshot', undefined, login.session.accessToken)).text();
+      assert.equal(final, output.backup);
+      const before = await restoreBackup(output.before, { purpose: 'recovery', secret: output.oldRecoveryKey });
+      try {
+        for (const encoded of [output.rotated, final]) {
+          for (const [purpose, secret] of [['password', config.vaultPassword + ' rotated'], ['recovery', output.recoveryKey]]) {
+            const opened = await restoreBackup(encoded, { purpose, secret });
+            try {
+              validateVaultEntities(opened.entities); assert.equal(opened.keyGeneration, 2); assert.notDeepEqual(opened.vmk, before.vmk);
+              assert.deepEqual(opened.entities.map(({ metadata, payload }) => [metadata.id, payload]), before.entities.map(({ metadata, payload }) => [metadata.id, payload]));
+              assert.equal(opened.revision, encoded === final ? 4 : 3);
+            } finally { opened.vmk.fill(0); }
+          }
+          await assert.rejects(restoreBackup(encoded, { purpose: 'password', secret: config.vaultPassword }));
+          await assert.rejects(restoreBackup(encoded, { purpose: 'recovery', secret: output.oldRecoveryKey }));
+        }
+        const previous = await inspectBackup(output.before);
+        const rotated = await inspectBackup(output.rotated);
+        validateTransition(previous, rotated, new Map(), [], true);
+        assert.throws(() => validateTransition(previous, rotated));
+        validateTransition(rotated, await inspectBackup(final));
+      } finally { before.vmk.fill(0); }
+      for (const path of ['/v1/vault/rotate', '/v1/vault/commit', '/v1/devices/approve']) {
+        const denied = await fetch(origin + path, { method: 'POST', headers: { 'X-AuthBox-Fixture': fixtureToken,
+          Authorization: `Bearer ${login.session.accessToken}`, 'Content-Type': 'application/json' }, body: '{}',
+          redirect: 'error', signal: AbortSignal.timeout(30000) });
+        assert.equal(denied.status, 403); await denied.body?.cancel();
+      }
+      const history = await (await request('/v1/vault/history', undefined, login.session.accessToken)).json();
+      assert.deepEqual(history.entries.map(({ revision }) => revision), [4, 3, 2, 1]);
+      await request('/v1/auth/logout', {}, login.session.accessToken);
+      return { checks: 8, results: ['PHB110 rotates complete encrypted vault on free SQLite DO',
+        'New password and recovery key independently restore identical business data in Android and Node',
+        'Independent Node confirms fresh VMK; old password and recovery cannot unlock the new snapshot',
+        'Old encrypted snapshot stays locally and in cloud history',
+        'Peer sessions and refresh tokens are revoked; peer relogin stays reader until reapproved',
+        'History across generations requires old material and restores as a fresh revision under current VMK',
+        'Independent Node login stays reader and direct mutation requests are rejected',
+        'All four scoped history revisions remain readable'], model: 'PHB110', api: 35,
+        instrumentation: 'CloudKeyRotationTest: 1 passed; CloudCleanupTest runs in finally' };
+    }
     await instrument('AutoSyncScreenTest', 'write', 240000);
     await instrument('CloudTest', 'write');
     const initial = await artifact('cloud-result.json');
@@ -216,7 +263,7 @@ export async function runAndroidCloud({ origin, fixtureToken, invite, management
       try { await instrument('CloudCleanupTest'); }
       catch (error) { if (!originalFailure) throw error; console.log('Android fixture cleanup failed; original failure preserved'); }
     }
-    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json', 'cloud-review-result.json', 'cloud-auto-sync-result.json']); }
+    try { await removeArtifacts(['cloud-result.json', 'cloud-backup-result.json', 'cloud-registration-result.json', 'cloud-review-result.json', 'cloud-auto-sync-result.json', 'cloud-rotation-result.json']); }
     catch (error) { if (!originalFailure) throw error; console.log('Android output cleanup pending; original failure preserved'); }
   }
 }

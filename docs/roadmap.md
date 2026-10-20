@@ -6,9 +6,9 @@
 | --- | --- | --- | --- |
 | 0 仓库初始化 | README、需求、开发约定、格式及忽略规则、标准 AGPL-3.0 许可 | 文档一致性、链接、敏感文件忽略、首次提交与远端核对 | 已完成 |
 | 1 可行性验证 | Workers 密码哈希、跨端加解密、Google 基本身份、NAS HTTPS 拉取 | 真实运行环境记录，确定认证成本及库兼容性 | 进行中；免费 SQLite DO 的真实自定义密码、持久化及 CPU 采样已通过；其他集成边界见验证进度 |
-| 2 协议与密码学 | 加密与备份格式、TOTP、恢复材料、schema 和标准向量 | 标准测试、跨端兼容、坏文件和未知版本处理 | 协议基线已完成；46 项本地测试通过，[密码学互通记录](protocol-results.md) 与 [同步权限协议](sync-api-v1.md) |
+| 2 协议与密码学 | 加密与备份格式、TOTP、恢复材料、schema 和标准向量 | 标准测试、跨端兼容、坏文件和未知版本处理 | 协议基线已完成；含主密钥轮换的 47 项本地测试通过，[密码学互通记录](protocol-results.md) 与 [同步权限协议](sync-api-v1.md) |
 | 3 账号与同步服务 | 账号、设备、只读角色、会话、SQLite DO 事务、版本、冲突与历史 | 越权、重放、并发、事务、恢复码单次消费 | 核心已实现；[服务结果](api-results.md)及[新增历史读取和客户端联调](android-sync-review-results.md)；正式部署与发布验收待完成，未引入 D1/R2 |
-| 4 Android | 本地管理、扫码迁移、分组标签收藏、系统解锁、加密同步 | 真机及测试网站验证，离线、重启、迁移和冲突 | 进行中；[管理与导入](android-management-results.md)、[账号安全](android-security-results.md)、[备份](android-backup-results.md)、[复制注册及恢复包](android-registration-results.md)、[冲突与历史](android-sync-review-results.md)、[前台自动同步](android-auto-sync-results.md)、[本机锁定与剪贴板](android-protection-results.md)已有功能验证；系统认证正向实测按用户选择暂缓，继续补齐主密钥轮换等；摄像头实扫、真实迁移、故障恢复演练和发布验收统一放最后 |
+| 4 Android | 本地管理、扫码迁移、分组标签收藏、系统解锁、加密同步 | 真机及测试网站验证，离线、重启、迁移和冲突 | 进行中；[管理与导入](android-management-results.md)、[账号安全](android-security-results.md)、[备份](android-backup-results.md)、[复制注册及恢复包](android-registration-results.md)、[冲突与历史](android-sync-review-results.md)、[前台自动同步](android-auto-sync-results.md)、[本机锁定与剪贴板](android-protection-results.md)、[主密钥轮换及设备重新授权](android-key-rotation-results.md)已有功能验证；下一步 Chrome；系统认证正向实测按用户选择暂缓，摄像头实扫、真实迁移、故障恢复演练和发布验收统一放最后 |
 | 5 Chrome | 登录解锁、只读查询复制、缓存、自动锁定、同步 | 直接请求写接口失败，手机关机、断网和重启验证 | 未开始 |
 | 6 Google 与 NAS | 可选绑定、密文快照、NAS 拉取与保留、离线导入 | 不依赖 Google 的账号使用，家宽实际备份与断云恢复 | 未开始 |
 | 7 第一版验收 | 安装与部署说明、恢复演练、完整验收结果 | 执行需求文档全部验收项，记录未解决限制 | 未开始 |

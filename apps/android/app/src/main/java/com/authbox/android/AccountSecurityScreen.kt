@@ -38,7 +38,9 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
     update: (String, Boolean) -> Unit, changePassword: (String, String) -> Unit,
     generate: () -> Unit, rotate: (Boolean) -> Unit, onBackup: (() -> Unit)? = null,
     autoSync: ((Boolean) -> Unit)? = null, retrySync: (() -> Unit)? = null,
-    enableQuick: (() -> Unit)? = null, disableQuick: (() -> Unit)? = null) {
+    enableQuick: (() -> Unit)? = null, disableQuick: (() -> Unit)? = null,
+    prepareRotation: ((String, String, String) -> Unit)? = null, confirmRotation: ((String, Boolean) -> Unit)? = null,
+    cancelRotation: (() -> Unit)? = null) {
     var password by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<Pair<DeviceInfo, Boolean>?>(null) }
     var saved by remember { mutableStateOf(false) }
@@ -70,6 +72,9 @@ private fun validLoginPassword(value: String) = value.toByteArray(Charsets.UTF_8
                 if (retrySync != null) OutlinedButton(retrySync, enabled = !state.busy && state.unlocked && state.autoSync.enabled && !state.conflict && !state.hasReview) { Text("立即检查并同步") }
             }
             if (onBackup != null) item { OutlinedButton(onBackup) { Text("备份与保险库") } }
+            if (prepareRotation != null && confirmRotation != null && cancelRotation != null) item {
+                KeyRotationPanel(state, prepareRotation, confirmRotation, cancelRotation)
+            }
             item {
                 Text("本机设备 ID：${state.deviceId ?: "请先登录"}")
                 Text("权限：${when (state.role) { "manager" -> "管理设备"; "reader" -> "只读设备"; else -> "未登录" }}")

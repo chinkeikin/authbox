@@ -58,12 +58,15 @@ HTTP 请求体上限为 2 MiB + 16 KiB，在线 backup 字符串的 UTF8 上限�
 | POST /v1/auth/logout | 空对象或空体，注销当前访问令牌所属会话 |
 | POST /v1/challenges | operation、requestHash，仅 manager；password.change 使用单独 prepare |
 | POST /v1/vault/commit | payload = {operationId, baseRevision, restoredIds, backup}、proof |
+| POST /v1/vault/rotate | 同提交 payload，独立 vault.rotate 证明；代次递增、完整重加密、其他设备降为只读并撤销其他会话 |
 | POST /v1/devices/approve /revoke | payload = {deviceId}、proof |
 | POST /v1/account/recovery/rotate | payload = {hashes}、proof |
 | POST /v1/account/password/prepare | currentPassword、newPassword，仅 manager，返回待签名挑战 |
 | POST /v1/account/password/confirm | proof，返回新的会话，旧会话全部撤销 |
 
 device 固定为 `{id: UUID, name, publicKey: {kty:"EC", crv:"P-256", x, y}}`，不允许私钥字段或客户端角色。账号恢复码由 `createAccountRecoveryCodes` 生成，注册/轮换只发送 hashes，原码必须离线保存。恢复和密码修改不会解开或改动保险库。
+
+普通提交必须维持主密钥代次。主密钥轮换保留全部实体 ID 和类型，两个封装和所有记录使用新代次；服务端在同一事务内保存新快照、保留旧历史、撤销当前会话以外的全部会话、将其他未撤销设备降为 reader，并保存幂等回执。其他设备须重新登录、批准及再次证明私钥才能恢复管理权限。结果不确定时重试原 operationId 和候选，不生成第二份主密钥；跨普通提交/轮换接口复用 ID 会被拒绝。轮换不修改平台密码或账号恢复码，也不能擦除已被其他设备取得的 TOTP 密钥。详细客户端结果见[主密钥轮换记录](../../docs/android-key-rotation-results.md)。
 
 未登录挑战摘要使用 `authenticationContext(operation, requestBody)`，显式排除 password、invite、code 和 proof：注册只绑定 username/device/recoveryHashes/backup，恢复只绑定 username/device，设备登录只绑定 username/deviceId。不得用完整密码请求体生成快速摘要。密码 prepare/confirm 仅绑定新密码的随机盐 Argon2id PHC 摘要，不保存密码快速哈希。
 

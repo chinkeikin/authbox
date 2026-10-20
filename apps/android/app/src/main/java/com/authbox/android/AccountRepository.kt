@@ -69,6 +69,7 @@ internal fun accountNamespace(origin: String, username: String): String = "authb
 
 data class DeviceInfo(val id: String, val name: String, val role: String, val revoked: Boolean, val hasKey: Boolean)
 data class RegistrationInfo(val vaultId: String, val entities: Int, val sourceVaultId: String? = null, val sourceRevision: Long? = null)
+data class RotationInfo(val id: String, val generation: Long, val submitted: Boolean)
 
 internal fun accountRecoveryCodes(): List<String> = (1..8).map { "ABAC1-" + b64(randomBytes(16)) }
 internal fun recoveryHashes(codes: List<String>): JSONArray {
@@ -107,7 +108,12 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun revision(): Long? = state.optString("backup").takeIf { it.isNotEmpty() }?.let { VaultCrypto.inspect(it).getLong("revision") }
     @Synchronized fun hasPending(): Boolean = state.has("pending")
     @Synchronized fun hasDraft(): Boolean = state.has("draft")
-    @Synchronized fun hasLocalChanges(): Boolean = hasPending() || hasDraft()
+    @Synchronized fun hasRotation(): Boolean = state.has("rotation")
+    @Synchronized fun rotationInfo(): RotationInfo? = state.optJSONObject("rotation")?.let {
+        val payload = it.getJSONObject("payload")
+        RotationInfo(payload.getString("operationId"), VaultCrypto.inspect(payload.getString("backup")).getLong("keyGeneration"), it.getBoolean("submitted"))
+    }
+    @Synchronized fun hasLocalChanges(): Boolean = hasPending() || hasDraft() || hasRotation()
     @Synchronized fun isUnlocked(): Boolean = unlocked != null
     @Synchronized internal fun quickEnabled(): Boolean = state.has("backup") && quick.enabled(quickBinding(VaultCrypto.inspect(currentEncoded())))
     @Synchronized internal fun prepareQuick(enable: Boolean): QuickUnlockRequest {
@@ -127,7 +133,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun lock() { unlocked?.close(); unlocked = null; review?.close(); review = null }
     @Synchronized fun hasReview(): Boolean = state.has("review")
     @Synchronized fun hasConflict(): Boolean = state.optBoolean("conflictDetected")
-    @Synchronized fun canSync(): Boolean = state.has("auth") && !state.optBoolean("refreshUncertain") && isUnlocked() && !hasReview() && !hasConflict()
+    @Synchronized fun canSync(): Boolean = state.has("auth") && !state.optBoolean("refreshUncertain") && isUnlocked() && !hasReview() && !hasConflict() && !hasRotation()
     @Synchronized fun reviewView(): ReviewView? = review?.view()
     @Synchronized fun entities(): List<VaultEntity> = requireNotNull(unlocked) { "请先解锁保险库" }.entities.map { it.copy(payload = it.payload.copy()) }
 
@@ -415,6 +421,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun rewrap(secret: String, purpose: String, saved: Boolean = true) {
+        requireNoRotation()
         require(role() == "manager") { "当前设备没有管理权限" }
         require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
         require(!hasReview()) { "请先确认或取消当前比较" }
@@ -424,6 +431,65 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
         require(encoded.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "保险库超过在线同步大小限制" }
         save(state.copy().put("draft", encoded))
         vault.snapshot = VaultCrypto.inspect(encoded)
+    }
+
+    private fun requireNoRotation() { require(!hasRotation()) { "请先确认或取消主密钥轮换；已提交的轮换须重试确认结果" } }
+
+    @Synchronized fun prepareRotation(secret: String, purpose: String, password: String): String {
+        requireReviewAccess(); requireNoRotation()
+        require(!hasLocalChanges() && !hasReview() && !hasConflict()) { "请先同步本地修改并处理冲突或比较" }
+        val encoded = state.getString("backup")
+        val vault = requireNotNull(unlocked)
+        VaultCrypto.restore(encoded, secret, purpose).use { require(MessageDigest.isEqual(it.vmk, vault.vmk)) { "保险库身份变化" } }
+        checkHead(vault.snapshot)
+        val created = VaultCrypto.rotate(vault, password)
+        try {
+            val candidate = canonical(created.vault.snapshot)
+            require(candidate.toByteArray(Charsets.UTF_8).size <= 1024 * 1024) { "保险库超过在线同步大小限制" }
+            val payload = obj("operationId" to UUID.randomUUID().toString(), "baseRevision" to requireNotNull(revision()),
+                "restoredIds" to JSONArray(), "backup" to candidate)
+            val next = state.copy()
+            preserveReviewVersions(next, listOf("主密钥轮换前" to encoded))
+            save(next.put("rotation", obj("payload" to payload, "submitted" to false)))
+            return created.recoveryKey
+        } finally { created.vault.close() }
+    }
+
+    @Synchronized fun cancelRotation() {
+        requireReviewAccess()
+        val rotation = state.getJSONObject("rotation")
+        require(!rotation.getBoolean("submitted")) { "轮换结果未确认，请先重试确认；不会丢弃可能已生效的新密钥" }
+        save(state.copy().apply { remove("rotation"); remove("conflictDetected") })
+    }
+
+    @Synchronized fun confirmRotation(id: String, saved: Boolean) {
+        requireReviewAccess()
+        val rotation = state.getJSONObject("rotation").copy()
+        val payload = rotation.getJSONObject("payload")
+        require(payload.getString("operationId") == id) { "轮换候选已变化，请重新核对" }
+        require(rotation.getBoolean("submitted") || saved) { "请先离线保存新的保险库恢复密钥" }
+        val token = managerAccess()
+        val proof = managementProof("vault.rotate", payload, token)
+        save(state.copy().put("rotation", rotation.put("submitted", true)))
+        try {
+            val response = JSONObject(api.request("/v1/vault/rotate", obj("payload" to payload, "proof" to proof), token))
+            val header = VaultCrypto.inspect(payload.getString("backup"))
+            require(response.getString("operationId") == id && number(response, "revision") == header.getLong("revision") &&
+                response.getString("digest") == header.getString("digest")) { "轮换回执不匹配" }
+            quick.disable()
+            save(state.copy().put("backup", payload.getString("backup")).apply { remove("rotation"); remove("conflictDetected") })
+            lock()
+        } catch (error: ApiFailure) {
+            if (error.status == 409 && error.code == "revision_conflict") {
+                val next = state.copy().put("conflictDetected", true)
+                preserveReviewVersions(next, listOf("未提交的主密钥轮换候选" to payload.getString("backup")))
+                save(next.put("rotation", rotation.put("submitted", false)))
+                throw SyncConflict()
+            }
+            throw IllegalStateException("主密钥轮换结果未确认，请保留新旧密码和恢复密钥，并重试确认轮换", error)
+        } catch (error: Exception) {
+            throw IllegalStateException("主密钥轮换结果未确认，请保留新旧密码和恢复密钥，并重试确认轮换", error)
+        }
     }
 
     @Synchronized fun stage(entities: List<VaultEntity>) {
@@ -444,6 +510,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     }
 
     @Synchronized fun edit(operation: (MutableList<VaultEntity>) -> Unit) {
+        requireNoRotation()
         require(role() == "manager") { "当前设备只有只读权限" }
         require(!hasPending()) { "已有上传请求待确认，请先同步或处理冲突" }
         require(!hasReview()) { "请先确认或取消当前比较" }
@@ -464,6 +531,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
     @Synchronized fun upload() = uploadWhile { true }
 
     private fun uploadWhile(allowed: () -> Boolean) {
+        requireNoRotation()
         require(allowed()) { "同步已暂停，本地内容已保留" }
         require(role() == "manager") { "当前设备只有只读权限" }
         require(!hasReview()) { "请先确认或取消当前比较" }
@@ -597,6 +665,7 @@ class AccountRepository(context: Context, val api: ApiClient, val username: Stri
 
     @Synchronized fun prepareReview(secret: String, purpose: String = "password", historyRevision: Long? = null,
         oldSecret: String? = null, oldPurpose: String = "password") {
+        requireNoRotation()
         requireReviewAccess()
         if (historyRevision == null) require(hasLocalChanges()) { "没有待处理的本地修改" }
         else require(!hasLocalChanges()) { "请先同步本地修改或处理冲突，再恢复历史" }

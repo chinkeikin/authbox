@@ -9,7 +9,8 @@ import { runApiSuite, apiFixturePassword } from '../../services/api/test/suite.m
 import { serverProfile } from '../feasibility/fixtures.mjs';
 import { sha256, utf8 } from '../../packages/protocol/src/encoding.mjs';
 const durableMarker = 'api-v1';
-const androidMode = process.argv.includes('--android');
+const rotationMode = process.argv.includes('--android-rotation');
+const androidMode = process.argv.includes('--android') || rotationMode;
 const invites = Array.from({ length: androidMode ? 3 : 2 }, () => randomBytes(32).toString('base64url'));
 const inviteHashes = await Promise.all(invites.map((invite) => sha256(utf8(invite))));
 
@@ -21,7 +22,7 @@ assert.match(account, /^[a-f0-9]{32}$/i);
 assert.ok(token.length > 20 && !token.includes('replace-with'));
 assert.ok(/^[a-z0-9.-]+$/.test(zoneName) && zoneName.includes('.'));
 assert.ok(/^[a-z0-9.-]+$/.test(hostname) && hostname.endsWith(`.${zoneName}`));
-const output = androidMode ? '.cache/api/cloud/android-service-report.json' : '.cache/api/cloud/service-report.json';
+const output = rotationMode ? '.cache/api/cloud/android-rotation-report.json' : androidMode ? '.cache/api/cloud/android-service-report.json' : '.cache/api/cloud/service-report.json';
 const cleanupOnly = process.argv.includes('--cleanup');
 const previous = cleanupOnly ? JSON.parse(await readFile(output, 'utf8')) : undefined;
 const name = previous?.name ?? `authbox-api-check-${randomUUID().slice(0, 8)}`;
@@ -214,7 +215,7 @@ async function verify() {
   }
   if (androidMode) {
     const { runAndroidCloud } = await import('../android/run-cloud.mjs');
-    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0], managementInvite: invites[1], registrationInvite: invites[2] });
+    const result = await runAndroidCloud({ origin: `https://${hostname}`, fixtureToken: probeToken, invite: invites[0], managementInvite: invites[1], registrationInvite: invites[2], rotationOnly: rotationMode });
     report.android = result;
     report.checks = result.checks;
     report.runtimeChecksPassed = true;

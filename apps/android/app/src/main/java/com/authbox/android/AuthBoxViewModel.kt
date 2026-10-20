@@ -23,7 +23,7 @@ data class ScreenState(val busy: Boolean = false, val message: String = "请配�
     val registration: RegistrationInfo? = null, val registrationMaterialId: String? = null,
     val history: HistoryPage? = null, val review: ReviewView? = null, val savedVersions: List<SavedVersionInfo> = emptyList(),
     val hasReview: Boolean = false, val conflict: Boolean = false, val syncReady: Boolean = false,
-    val autoSync: AutoSyncInfo = AutoSyncInfo(), val quickEnabled: Boolean = false)
+    val autoSync: AutoSyncInfo = AutoSyncInfo(), val quickEnabled: Boolean = false, val rotation: RotationInfo? = null)
 
 class AuthBoxViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("endpoint", 0)
@@ -129,13 +129,13 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
                     groups[p.optString("groupId")] ?: "未分组", VaultCrypto.totp(p), p.getBoolean("favorite"))
             }
             ScreenState(role = active.role(), unlocked = foreground && active.isUnlocked(), pending = active.hasLocalChanges(), revision = active.revision(), rows = rows,
-                entities = entities, canEdit = active.role() == "manager" && !active.hasPending() && !active.hasReview(), deviceId = active.deviceId(),
+                entities = entities, canEdit = active.role() == "manager" && !active.hasPending() && !active.hasReview() && !active.hasRotation(), deviceId = active.deviceId(),
                 devices = if (foreground && active.role() == "manager") devices else emptyList(),
                 preparedExport = preparedExport,
                 registration = active.registrationInfo(), registrationMaterialId = if (foreground) registrationMaterialId else null,
                 history = if (foreground && active.isUnlocked()) history else null, review = if (foreground) active.reviewView() else null,
                 savedVersions = if (foreground && active.role() == "manager" && active.isUnlocked()) active.savedVersions() else emptyList(),
-                hasReview = active.hasReview(), conflict = active.hasConflict(), syncReady = active.canSync(), autoSync = mutable.value.autoSync, quickEnabled = active.quickEnabled(),
+                hasReview = active.hasReview(), conflict = active.hasConflict(), syncReady = active.canSync(), autoSync = mutable.value.autoSync, quickEnabled = active.quickEnabled(), rotation = active.rotationInfo(),
                 importPreview = if (foreground && active.isUnlocked()) synchronized(this) { imports.preview(entities) } else ImportPreview())
         }
     }
@@ -164,6 +164,13 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
     fun confirmVaultRecoveryKey(origin: String, user: String, saved: Boolean) {
         val key = mutable.value.recovery.singleOrNull()?.takeIf { it.startsWith("ABR1-") }
         perform(origin, user) { it.rewrap(requireNotNull(key) { "请重新生成保险库恢复密钥" }, "recovery", saved); null }
+    }
+    fun prepareRotation(origin: String, user: String, secret: String, purpose: String, password: String) = perform(origin, user) {
+        listOf(it.prepareRotation(secret, purpose, password))
+    }
+    fun cancelRotation(origin: String, user: String) = perform(origin, user) { it.cancelRotation(); null }
+    fun confirmRotation(origin: String, user: String, id: String, saved: Boolean) = perform(origin, user) {
+        it.confirmRotation(id, saved); devices = emptyList(); history = null; null
     }
     fun upload(origin: String, user: String) = perform(origin, user) { it.upload(); history = null; null }
     fun loadHistory(origin: String, user: String, before: Long? = null) = perform(origin, user) { history = it.history(before); null }
@@ -304,6 +311,7 @@ class AuthBoxViewModel(application: Application) : AndroidViewModel(application)
         val message = when {
             state.autoSync.running -> "自动同步：正在检查与同步…"
             !syncEnabled -> "自动同步：已暂停"
+            state.rotation != null -> "自动同步：等待确认或取消主密钥轮换"
             state.conflict || state.hasReview -> "自动同步：等待处理冲突或比较"
             schedule.blocked != null -> requireNotNull(schedule.blocked)
             !foreground || !state.unlocked -> "自动同步：锁定中，解锁后检查"

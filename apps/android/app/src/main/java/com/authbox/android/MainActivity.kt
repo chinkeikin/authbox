@@ -200,7 +200,9 @@ class MainActivity : ComponentActivity() {
             { old, next -> model.changePassword(origin, username, old, next) },
             { model.prepareRecoveryCodes(origin, username) }, { model.rotateRecoveryCodes(origin, username, it) },
             { settings = false; files = true }, model::setAutoSync, model::retryAutoSync,
-            { activity.requestQuick(false, true, origin, username) }, { model.disableQuick(origin, username) })
+            { activity.requestQuick(false, true, origin, username) }, { model.disableQuick(origin, username) },
+            { secret, purpose, password -> model.prepareRotation(origin, username, secret, purpose, password) },
+            { id, saved -> model.confirmRotation(origin, username, id, saved) }, { model.cancelRotation(origin, username) })
         return
     }
     if (state.unlocked) {
