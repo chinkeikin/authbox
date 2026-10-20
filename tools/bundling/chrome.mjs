@@ -6,9 +6,9 @@ import { build } from 'esbuild';
 
 export async function buildChrome({ directory = 'dist/chrome', origin = 'https://api.example.invalid', workerEntry = 'apps/chrome/src/background.mjs' } = {}) {
   const url = new URL(origin);
-  assert.ok(url.protocol === 'https:' && url.origin === origin && !url.port);
+  assert.ok(url.protocol === 'https:' && url.origin === origin);
   const manifest = JSON.parse(await readFile('apps/chrome/manifest.json', 'utf8'));
-  manifest.host_permissions = [origin + '/*'];
+  manifest.host_permissions = [`https://${url.hostname}/*`];
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replaceAll('https://api.example.invalid', origin);
   const output = resolve(directory); await mkdir(output, { recursive: true });
   await build({ entryPoints: { background: workerEntry, ui: 'apps/chrome/src/ui.mjs' }, outdir: output,

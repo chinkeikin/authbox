@@ -140,6 +140,16 @@ test('uncertain refresh fails closed and the old refresh token is never retried'
   await t.reader.dispatch('unlock', { password: fixturePassword }); assert.equal((await t.reader.dispatch('list')).rows.length, 1);
 });
 
+test('manual lock during an in-flight Argon2 unlock cannot be undone by its result', async () => {
+  const t = setup(); await t.login(); await t.reader.dispatch('sync', { manual: true });
+  const opening = t.reader.dispatch('unlock', { password: fixturePassword });
+  const rejected = assert.rejects(opening, { code: 'cancelled' });
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  const locking = t.reader.dispatch('lock'); await rejected; await locking;
+  assert.equal((await t.reader.dispatch('status')).unlocked, false); assert.equal(t.reader.opened, null);
+  assert.equal(t.storage.session.values.unlock, undefined);
+});
+
 test('revocation locks plaintext, preserves offline data and role escalation is rejected', async () => {
   const t = setup(); await t.ready(); t.api.status = 401;
   await assert.rejects(t.reader.dispatch('sync', { manual: true }));

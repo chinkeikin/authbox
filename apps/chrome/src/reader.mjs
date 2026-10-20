@@ -14,8 +14,8 @@ export class ReaderError extends Error {
 const fail = (condition, code, message) => { if (!condition) throw new ReaderError(code, message); };
 export function apiOrigin(value) {
   const url = new URL(value);
-  fail(url.protocol === 'https:' && url.origin === value && !url.username && !url.password && !url.port,
-    'invalid_origin', '服务地址必须是无路径和端口的 HTTPS 地址');
+  fail(url.protocol === 'https:' && url.origin === value && !url.username && !url.password,
+    'invalid_origin', '服务地址必须是无路径的 HTTPS 地址');
   return value;
 }
 
@@ -38,7 +38,7 @@ export function readerAuth(value, expectedUsername, now) {
 }
 
 export class ReaderController {
-  constructor({ storage, request = fetch, now = Date.now, alarm = async () => {} }) {
+  constructor({ storage, request = (input, options) => fetch(input, options), now = Date.now, alarm = async () => {} }) {
     this.storage = storage; this.request = request; this.now = now; this.alarm = alarm;
     this.epoch = 0; this.opened = null; this.tail = Promise.resolve(); this.state = null;
   }
@@ -82,8 +82,8 @@ export class ReaderController {
       || !this.state.backup || value.digest !== (await inspectBackup(this.state.backup)).digest) {
       await this.clearUnlock(); return null;
     }
-    value.lastSeenAt = now;
-    await this.storage.session.set({ unlock: value }); return value;
+    if (now - value.lastSeenAt >= 1000) { value.lastSeenAt = now; await this.storage.session.set({ unlock: value }); }
+    return value;
   }
   async status() {
     const unlock = await this.unlockState();
@@ -112,6 +112,9 @@ export class ReaderController {
         const item = await reader.read(); if (item.done) break;
         length += item.value.length; fail(length <= MAX_BYTES, 'response_size', '服务响应超过大小限制，原缓存已保留'); chunks.push(item.value);
       }
+    } catch (error) {
+      if (error instanceof ReaderError) throw error;
+      throw new ReaderError('network', '网络读取中断，原加密缓存已保留');
     } finally { await reader?.cancel().catch(() => {}); }
     const bytes = new Uint8Array(length); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
@@ -187,6 +190,7 @@ export class ReaderController {
           const key = unbase64url(unlock.vmk, 32);
           let opened;
           try { opened = await authenticateBackup(encoded, key); validateVaultEntities(opened.entities); }
+          catch (error) { opened?.vmk.fill(0); throw error; }
           finally { key.fill(0); }
           try {
             if (epoch === this.epoch && this.now() < unlock.expiresAt && (unlock.backgroundUntil === null || this.now() < unlock.backgroundUntil)) {
@@ -225,7 +229,8 @@ export class ReaderController {
       const now = this.now();
       const value = { id: crypto.randomUUID(), vmk: base64url(opened.vmk), digest: header.digest,
         expiresAt: now + this.state.preferences.idleMinutes * 60000, lastSeenAt: now, backgroundUntil: null };
-      if (!cached) await this.save({ ...this.state, backup: encoded, candidate: null });
+      if (!cached) await this.save({ ...this.state, backup: encoded, candidate: null,
+        sync: { ...this.state.sync, status: this.state.sync.status === 'unlock_required' ? 'current' : this.state.sync.status } });
       await this.storage.session.set({ unlock: value });
       if (epoch !== this.epoch) { await this.clearUnlock(); throw new ReaderError('cancelled', '界面已锁定，请重新解锁'); }
       this.opened?.vmk.fill(0); this.opened = { ...opened, digest: header.digest, unlockId: value.id }; opened = null;
@@ -241,9 +246,12 @@ export class ReaderController {
       const key = unbase64url(value.vmk, 32);
       try {
         const epoch = this.epoch;
-        const opened = await authenticateBackup(this.state.backup, key); validateVaultEntities(opened.entities);
-        if (epoch !== this.epoch) { opened.vmk.fill(0); throw new ReaderError('locked', '保险库已锁定'); }
-        this.opened = { ...opened, digest: value.digest, unlockId: value.id };
+        const opened = await authenticateBackup(this.state.backup, key);
+        try {
+          validateVaultEntities(opened.entities);
+          fail(epoch === this.epoch, 'locked', '保险库已锁定');
+          this.opened = { ...opened, digest: value.digest, unlockId: value.id };
+        } catch (error) { opened.vmk.fill(0); throw error; }
       } finally { key.fill(0); }
     }
     return { vault: this.opened, unlock: value };

@@ -1,6 +1,6 @@
 import { ReaderController, ReaderError } from './reader.mjs';
 
-export function startBackground(request = fetch) {
+export function startBackground(request = (input, options) => fetch(input, options)) {
   const ready = Promise.all(['local', 'session'].map((area) => chrome.storage[area].setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })));
   const views = new Set();
   const controller = new ReaderController({ storage: chrome.storage, request, alarm: async (when) => {

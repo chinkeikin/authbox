@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { argon2Sync, createCipheriv, hkdfSync } from 'node:crypto';
 import { before, test } from 'node:test';
 import { base64url, canonical, fromUtf8, unbase64url, utf8 } from '../src/encoding.mjs';
-import { createBackup, inspectBackup, MAX_BACKUP_BYTES, restoreBackup } from '../src/backup.mjs';
+import { authenticateBackup, createBackup, inspectBackup, MAX_BACKUP_BYTES, restoreBackup } from '../src/backup.mjs';
 import { createVault, decodeRecoveryKey, derivePasswordKey, deriveRecoveryKey, encodeRecoveryKey, LOGIN_KDF, openRecord,
   recordAad, sealRecord, unwrapVmk, VAULT_KDF, wrapAad, wrapVmk } from '../src/vault.mjs';
 import { serverProfile, vaultProfile } from '../../../tools/feasibility/fixtures.mjs';
@@ -16,6 +16,21 @@ let backup;
 let source;
 const clone = structuredClone;
 const changeByte = (encoded) => { const bytes = unbase64url(encoded, 1, 100000); bytes[0] ^= 1; return base64url(bytes); };
+
+test('in-memory VMK authenticates a full snapshot without aliasing or destroying the caller key', async () => {
+  const caller = Uint8Array.from(vault.vmk);
+  const opened = await authenticateBackup(backup, caller);
+  assert.notEqual(opened.vmk, caller); assert.deepEqual(opened.vmk, caller);
+  opened.vmk.fill(0); assert.deepEqual(caller, vault.vmk);
+  const forged = JSON.parse(backup); forged.entities = [];
+  const { digest: old, ...body } = forged;
+  const { sha256 } = await import('../src/encoding.mjs');
+  forged.digest = await sha256(utf8(canonical(body)));
+  await assert.rejects(authenticateBackup(canonical(forged), caller));
+  assert.deepEqual(caller, vault.vmk);
+  await assert.rejects(authenticateBackup(backup, new Uint8Array(31)));
+  caller.fill(0);
+});
 
 before(async () => {
   vault = await createVault(password);
